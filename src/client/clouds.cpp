@@ -163,8 +163,6 @@ float PerlinNoise2D(float x, float y) {
 	return lerp(v, x1, x2);
 }
 
-
-
 void Clouds::updateMesh()
 {
 	// Clouds move from Z+ towards Z-
