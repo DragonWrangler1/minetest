@@ -113,8 +113,8 @@ inline float fade(float t) {
 
 // Gradient function to compute dot product of gradient vectors and distance vectors
 inline float grad(int hash, float x, float y) {
-	int h = hash & 15;                      // Convert low 4 bits of hash code
-	float u = h < 8 ? x : y,                // into 12 gradient directions
+	int h = hash & 15;
+	float u = h < 8 ? x : y,
 		v = h < 4 ? y : h == 12 || h == 14 ? x : 0;
 	return ((h & 1) == 0 ? u : -u) + ((h & 2) == 0 ? v : -v);
 }
@@ -138,7 +138,6 @@ float PerlinNoise2D(float x, float y) {
 	float u = fade(x);
 	float v = fade(y);
 
-	// Hash coordinates of the 4 grid corners
 	int A = permutation[X] + Y;
 	int AA = permutation[A];
 	int AB = permutation[A + 1];
@@ -214,9 +213,9 @@ void Clouds::updateMesh()
 	c_side_1_f.r *= 0.95f;
 	c_side_1_f.g *= 0.95f;
 	c_side_1_f.b *= 0.95f;
-	c_side_2_f.r *= 0.85f;
-	c_side_2_f.g *= 0.85f;
-	c_side_2_f.b *= 0.85f;
+	c_side_2_f.r *= 0.90f;
+	c_side_2_f.g *= 0.90f;
+	c_side_2_f.b *= 0.90f;
 	c_bottom_f.r *= 0.80f;
 	c_bottom_f.g *= 0.80f;
 	c_bottom_f.b *= 0.80f;
@@ -225,13 +224,12 @@ void Clouds::updateMesh()
 	video::SColor c_side_2 = c_side_2_f.toSColor();
 	video::SColor c_bottom = c_bottom_f.toSColor();
 
-	// Read noise
 	std::vector<bool> grid(m_cloud_radius_i * 2 * m_cloud_radius_i * 2);
 
 	for (s16 zi = -m_cloud_radius_i; zi < m_cloud_radius_i; zi++) {
 		u32 si = (zi + m_cloud_radius_i) * m_cloud_radius_i * 2 + m_cloud_radius_i;
 
- 		for (s16 xi = -m_cloud_radius_i; xi < m_cloud_radius_i; xi++) {
+		for (s16 xi = -m_cloud_radius_i; xi < m_cloud_radius_i; xi++) {
 			u32 i = si + xi;
 
 			grid[i] = gridFilled(
@@ -383,8 +381,10 @@ void Clouds::updateMesh()
 
 				v3f pos(p0.X, m_params.height * BS, p0.Y);
 				for (video::S3DVertex &vertex : v) {
-					vertex.Pos += pos;
-					mb->Vertices.push_back(vertex);
+				//	vertex.Pos += pos;
+				//	mb->Vertices.push_back(vertex);
+					vertex.Color = c_bottom;
+					vertex.Normal.set(0,-1,0);
 				}
 			}
 		}
@@ -414,7 +414,7 @@ void Clouds::updateMesh()
 	}
 
 	tracestream << "Cloud::updateMesh(): " << mb->getVertexCount() << " vertices"
-					<< std::endl;
+		<< std::endl;
 }
 
 void Clouds::render()
@@ -427,7 +427,7 @@ void Clouds::render()
 	if (SceneManager->getSceneNodeRenderPass() != scene::ESNRP_TRANSPARENT)
 		return;
 
-	updateMesh(); // Ensure the mesh is updated with new cloud shapes
+	updateMesh();
 
 	// Update position
 	{
@@ -456,19 +456,19 @@ void Clouds::render()
 	bool fog_pixelfog = false;
 	bool fog_rangefog = false;
 	driver->getFog(fog_color, fog_type, fog_start, fog_end, fog_density,
-				fog_pixelfog, fog_rangefog);
+			fog_pixelfog, fog_rangefog);
 
 	// Set our own fog, unless it was already disabled
 	if (fog_start < FOG_RANGE_ALL) {
 		driver->setFog(fog_color, fog_type, cloud_full_radius * 0.5,
-					cloud_full_radius * 1.2, fog_density, fog_pixelfog, fog_rangefog);
+				cloud_full_radius*1.2, fog_density, fog_pixelfog, fog_rangefog);
 	}
 
 	driver->drawMeshBuffer(m_meshbuffer.get());
 
 	// Restore fog settings
 	driver->setFog(fog_color, fog_type, fog_start, fog_end, fog_density,
-					fog_pixelfog, fog_rangefog);
+			fog_pixelfog, fog_rangefog);
 }
 
 void Clouds::step(float dtime)
