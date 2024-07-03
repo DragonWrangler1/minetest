@@ -431,7 +431,7 @@ inline float grad(int hash, float x, float y) {
 
 // Linear interpolation function
 inline float lerp(float t, float a, float b) {
-    return a * t * (b - a);
+    return a + t * (b - a);
 }
 
 // Perlin noise function
