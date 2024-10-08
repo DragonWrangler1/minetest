@@ -35,6 +35,7 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include "gameparams.h"
 #include "script/common/c_types.h" // LuaError
 #include "util/numeric.h"
+#include "util/string.h" // StringMap
 
 #ifdef SERVER
 #error Do not include in server builds
@@ -194,7 +195,7 @@ public:
 	void handleCommand_Breath(NetworkPacket* pkt);
 	void handleCommand_MovePlayer(NetworkPacket* pkt);
 	void handleCommand_MovePlayerRel(NetworkPacket* pkt);
-	void handleCommand_DeathScreen(NetworkPacket* pkt);
+	void handleCommand_DeathScreenLegacy(NetworkPacket* pkt);
 	void handleCommand_AnnounceMedia(NetworkPacket* pkt);
 	void handleCommand_Media(NetworkPacket* pkt);
 	void handleCommand_NodeDef(NetworkPacket* pkt);
@@ -249,7 +250,7 @@ public:
 	void sendChangePassword(const std::string &oldpassword,
 		const std::string &newpassword);
 	void sendDamage(u16 damage);
-	void sendRespawn();
+	void sendRespawnLegacy();
 	void sendReady();
 	void sendHaveMedia(const std::vector<u32> &tokens);
 	void sendUpdateClientInfo(const ClientDynamicInfo &info);

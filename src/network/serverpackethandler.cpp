@@ -135,10 +135,10 @@ void Server::handleCommand_Init(NetworkPacket* pkt)
 
 	// Figure out a working version if it is possible at all
 	if (max_net_proto_version >= SERVER_PROTOCOL_VERSION_MIN ||
-			min_net_proto_version <= SERVER_PROTOCOL_VERSION_MAX) {
+			min_net_proto_version <= LATEST_PROTOCOL_VERSION) {
 		// If maximum is larger than our maximum, go with our maximum
-		if (max_net_proto_version > SERVER_PROTOCOL_VERSION_MAX)
-			net_proto_version = SERVER_PROTOCOL_VERSION_MAX;
+		if (max_net_proto_version > LATEST_PROTOCOL_VERSION)
+			net_proto_version = LATEST_PROTOCOL_VERSION;
 		// Else go with client's maximum
 		else
 			net_proto_version = max_net_proto_version;
@@ -477,11 +477,23 @@ void Server::process_PlayerPos(RemotePlayer *player, PlayerSAO *playersao,
 	u8 bits = 0; // bits instead of bool so it is extensible later
 
 	*pkt >> keyPressed;
+	player->control.unpackKeysPressed(keyPressed);
+
 	*pkt >> f32fov;
 	fov = (f32)f32fov / 80.0f;
 	*pkt >> wanted_range;
+
 	if (pkt->getRemainingBytes() >= 1)
 		*pkt >> bits;
+
+	if (pkt->getRemainingBytes() >= 8) {
+		*pkt >> player->control.movement_speed;
+		*pkt >> player->control.movement_direction;
+	} else {
+		player->control.movement_speed = 0.0f;
+		player->control.movement_direction = 0.0f;
+		player->control.setMovementFromKeys();
+	}
 
 	v3f position((f32)ps.X / 100.0f, (f32)ps.Y / 100.0f, (f32)ps.Z / 100.0f);
 	v3f speed((f32)ss.X / 100.0f, (f32)ss.Y / 100.0f, (f32)ss.Z / 100.0f);
@@ -500,8 +512,6 @@ void Server::process_PlayerPos(RemotePlayer *player, PlayerSAO *playersao,
 	playersao->setFov(fov);
 	playersao->setWantedRange(wanted_range);
 	playersao->setCameraInverted(bits & 0x01);
-
-	player->control.unpackKeysPressed(keyPressed);
 
 	if (playersao->checkMovementCheat()) {
 		// Call callbacks
@@ -856,33 +866,6 @@ void Server::handleCommand_PlayerItem(NetworkPacket* pkt)
 	}
 
 	playersao->getPlayer()->setWieldIndex(item);
-}
-
-void Server::handleCommand_Respawn(NetworkPacket* pkt)
-{
-	session_t peer_id = pkt->getPeerId();
-	RemotePlayer *player = m_env->getPlayer(peer_id);
-	if (player == NULL) {
-		errorstream <<
-			"Server::ProcessData(): Canceling: No player for peer_id=" <<
-			peer_id << " disconnecting peer!" << std::endl;
-		DisconnectPeer(peer_id);
-		return;
-	}
-
-	PlayerSAO *playersao = player->getPlayerSAO();
-	assert(playersao);
-
-	if (!playersao->isDead())
-		return;
-
-	RespawnPlayer(peer_id);
-
-	actionstream << player->getName() << " respawns at "
-			<< (playersao->getBasePosition() / BS) << std::endl;
-
-	// ActiveObject is added to environment in AsyncRunStep after
-	// the previous addition has been successfully removed
 }
 
 bool Server::checkInteractDistance(RemotePlayer *player, const f32 d, const std::string &what)

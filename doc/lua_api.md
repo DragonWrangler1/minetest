@@ -490,6 +490,11 @@ to let the client generate textures on-the-fly.
 The modifiers are applied directly in sRGB colorspace,
 i.e. without gamma-correction.
 
+### Notes
+
+ * `TEXMOD_UPSCALE`: The texture with the lower resolution will be automatically
+   upscaled to the higher resolution texture.
+
 ### Texture overlaying
 
 Textures can be overlaid by putting a `^` between them.
@@ -503,8 +508,9 @@ Example:
     default_dirt.png^default_grass_side.png
 
 `default_grass_side.png` is overlaid over `default_dirt.png`.
-The texture with the lower resolution will be automatically upscaled to
-the higher resolution texture.
+
+*See notes: `TEXMOD_UPSCALE`*
+
 
 ### Texture grouping
 
@@ -701,6 +707,8 @@ Apply a mask to the base image.
 
 The mask is applied using binary AND.
 
+*See notes: `TEXMOD_UPSCALE`*
+
 #### `[sheet:<w>x<h>:<x>,<y>`
 
 Retrieves a tile at position x, y (in tiles, 0-indexed)
@@ -798,6 +806,8 @@ in GIMP. Overlay is the same as Hard light but with the role of the two
 textures swapped, see the `[hardlight` modifier description for more detail
 about these blend modes.
 
+*See notes: `TEXMOD_UPSCALE`*
+
 #### `[hardlight:<file>`
 
 Applies a Hard light blend with the two textures, like the Hard light layer
@@ -812,6 +822,8 @@ increase contrast without clipping.
 
 Hard light is the same as Overlay but with the roles of the two textures
 swapped, i.e. `A.png^[hardlight:B.png` is the same as `B.png^[overlay:A.png`
+
+*See notes: `TEXMOD_UPSCALE`*
 
 #### `[png:<base64>`
 
@@ -830,6 +842,8 @@ that you could instead achieve by just using a file.
 In particular consider `minetest.dynamic_add_media` and test whether
 using other texture modifiers could result in a shorter string than
 embedding a whole image, this may vary by use case.
+
+*See notes: `TEXMOD_UPSCALE`*
 
 Hardware coloring
 -----------------
@@ -1394,16 +1408,19 @@ The function of `param2` is determined by `paramtype2` in node definition.
       The palette should have 256 pixels.
 * `paramtype2 = "colorfacedir"`
     * Same as `facedir`, but with colors.
-    * The first three bits of `param2` tells which color is picked from the
+    * The three most significant bits of `param2` tells which color is picked from the
       palette. The palette should have 8 pixels.
+    * The five least significant bits contain the `facedir` value.
 * `paramtype2 = "color4dir"`
-    * Same as `facedir`, but with colors.
-    * The first six bits of `param2` tells which color is picked from the
+    * Same as `4dir`, but with colors.
+    * The six most significant bits of `param2` tells which color is picked from the
       palette. The palette should have 64 pixels.
+    * The two least significant bits contain the `4dir` rotation.
 * `paramtype2 = "colorwallmounted"`
     * Same as `wallmounted`, but with colors.
-    * The first five bits of `param2` tells which color is picked from the
+    * The five most significant bits of `param2` tells which color is picked from the
       palette. The palette should have 32 pixels.
+    * The three least significant bits contain the `wallmounted` value.
 * `paramtype2 = "glasslikeliquidlevel"`
     * Only valid for "glasslike_framed" or "glasslike_framed_optional"
       drawtypes. "glasslike_framed_optional" nodes are only affected if the
@@ -1417,9 +1434,9 @@ The function of `param2` is determined by `paramtype2` in node definition.
     * Liquid texture is defined using `special_tiles = {"modname_tilename.png"}`
 * `paramtype2 = "colordegrotate"`
     * Same as `degrotate`, but with colors.
-    * The first (most-significant) three bits of `param2` tells which color
-      is picked from the palette. The palette should have 8 pixels.
-    * Remaining 5 bits store rotation in range 0–23 (i.e. in 15° steps)
+    * The three most significant bits of `param2` tells which color is picked
+      from the palette. The palette should have 8 pixels.
+    * The five least significant bits store rotation in range 0–23 (i.e. in 15° steps)
 * `paramtype2 = "none"`
     * `param2` will not be used by the engine and can be used to store
       an arbitrary value
@@ -1470,7 +1487,8 @@ Look for examples in `games/devtest` or `games/minetest_game`.
       'Connected Glass'.
 * `allfaces`
     * Often used for partially-transparent nodes.
-    * External and internal sides of textures are visible.
+    * External sides of textures, and unlike other drawtypes, the external sides
+      of other blocks, are visible from the inside.
 * `allfaces_optional`
     * Often used for leaves nodes.
     * This switches between `normal`, `glasslike` and `allfaces` according to
@@ -5522,6 +5540,10 @@ Utilities
       override_item_remove_fields = true,
       -- The predefined hotbar is a Lua HUD element of type `hotbar` (5.10.0)
       hotbar_hud_element = true,
+      -- Bulk LBM support (5.10.0)
+      bulk_lbms = true,
+      -- ABM supports field without_neighbors (5.10.0)
+      abm_without_neighbors = true,
   }
   ```
 
@@ -5845,8 +5867,13 @@ Call these functions only at load time!
     * `clicker`: ObjectRef - Object that acted upon `player`, may or may not be a player
 * `minetest.register_on_player_hpchange(function(player, hp_change, reason), modifier)`
     * Called when the player gets damaged or healed
+    * When `hp == 0`, damage doesn't trigger this callback.
+    * When `hp == hp_max`, healing does still trigger this callback.
     * `player`: ObjectRef of the player
     * `hp_change`: the amount of change. Negative when it is damage.
+      * Historically, the new HP value was clamped to [0, 65535] before
+        calculating the HP change. This clamping has been removed as of
+        Minetest 5.10.0
     * `reason`: a PlayerHPChangeReason table.
         * The `type` field will have one of the following values:
             * `set_hp`: A mod or the engine called `set_hp` without
@@ -5867,6 +5894,7 @@ Call these functions only at load time!
 * `minetest.register_on_dieplayer(function(ObjectRef, reason))`
     * Called when a player dies
     * `reason`: a PlayerHPChangeReason table, see register_on_player_hpchange
+    * For customizing the death screen, see `minetest.show_death_screen`.
 * `minetest.register_on_respawnplayer(function(ObjectRef))`
     * Called when player is to be respawned
     * Called _before_ repositioning of player occurs
@@ -6143,6 +6171,8 @@ Environment access
 * `minetest.swap_node(pos, node)`
     * Swap node at position with another.
     * This keeps the metadata intact and will not run con-/destructor callbacks.
+* `minetest.bulk_swap_node({pos1, pos2, pos3, ...}, node)`
+    * Equivalent to `minetest.swap_node` but in bulk.
 * `minetest.remove_node(pos)`: Remove a node
     * Equivalent to `minetest.set_node(pos, {name="air"})`, but a bit faster.
 * `minetest.get_node(pos)`
@@ -6551,6 +6581,9 @@ Formspec
 * `minetest.formspec_escape(string)`: returns a string
     * escapes the characters "[", "]", "\", "," and ";", which cannot be used
       in formspecs.
+* `minetest.hypertext_escape(string)`: returns a string
+    * escapes the characters "\", "<", and ">" to show text in a hypertext element.
+    * not safe for use with tag attributes.
 * `minetest.explode_table_event(string)`: returns a table
     * returns e.g. `{type="CHG", row=1, column=2}`
     * `type` is one of:
@@ -6569,6 +6602,13 @@ Formspec
         * `"INV"`: something failed
         * `"CHG"`: has been changed
         * `"VAL"`: not changed
+* `minetest.show_death_screen(player, reason)`
+    * Called when the death screen should be shown.
+    * `player` is an ObjectRef, `reason` is a PlayerHPChangeReason table or nil.
+    * By default, this shows a simple formspec with the option to respawn.
+      Respawning is done via `ObjectRef:respawn`.
+    * You can override this to show a custom death screen.
+    * For general death handling, use `minetest.register_on_dieplayer` instead.
 
 Item handling
 -------------
@@ -8229,12 +8269,18 @@ child will follow movement and rotation of that bone.
       bgcolor[], any non-style elements (eg: label) may result in weird behavior.
     * Only affects formspecs shown after this is called.
 * `get_formspec_prepend()`: returns a formspec string.
-* `get_player_control()`: returns table with player pressed keys
-    * The table consists of fields with the following boolean values
-      representing the pressed keys: `up`, `down`, `left`, `right`, `jump`,
-      `aux1`, `sneak`, `dig`, `place`, `LMB`, `RMB`, and `zoom`.
+* `get_player_control()`: returns table with player input
+    * The table contains the following boolean fields representing the pressed
+      keys: `up`, `down`, `left`, `right`, `jump`, `aux1`, `sneak`, `dig`,
+      `place`, `LMB`, `RMB` and `zoom`.
     * The fields `LMB` and `RMB` are equal to `dig` and `place` respectively,
       and exist only to preserve backwards compatibility.
+    * The table also contains the fields `movement_x` and `movement_y`.
+        * They represent the movement of the player. Values are numbers in the
+          range [-1.0,+1.0].
+        * They take both keyboard and joystick input into account.
+        * You should prefer them over `up`, `down`, `left` and `right` to
+          support different input methods correctly.
     * Returns an empty table `{}` if the object is not a player.
 * `get_player_control_bits()`: returns integer with bit packed player pressed
   keys.
@@ -8516,6 +8562,8 @@ child will follow movement and rotation of that bone.
           if set to zero the clouds are rendered flat.
         * `speed`: 2D cloud speed + direction in nodes per second
           (default `{x=0, z=-2}`).
+        * `shadow`: shadow color, applied to the base of the cloud
+          (default `#cccccc`).
 * `get_clouds()`: returns a table with the current cloud parameters as in
   `set_clouds`.
 * `override_day_night_ratio(ratio or nil)`
@@ -8562,6 +8610,9 @@ child will follow movement and rotation of that bone.
             (eg. -1 and 1 is the same saturation and luma, but different hues)
       * `shadows` is a table that controls ambient shadows
         * `intensity` sets the intensity of the shadows from 0 (no shadows, default) to 1 (blackness)
+            * This value has no effect on clients who have the "Dynamic Shadows" shader disabled.
+        * `tint` tints the shadows with the provided color, with RGB values ranging from 0 to 255.
+          (default `{r=0, g=0, b=0}`)
             * This value has no effect on clients who have the "Dynamic Shadows" shader disabled.
       * `exposure` is a table that controls automatic exposure.
         The basic exposure factor equation is `e = 2^exposure_correction / clamp(luminance, 2^luminance_min, 2^luminance_max)`
@@ -9089,6 +9140,11 @@ Used by `minetest.register_abm`.
     -- If left out or empty, any neighbor will do.
     -- `group:groupname` can also be used here.
 
+    without_neighbors = {"default:lava_source", "default:lava_flowing"},
+    -- Only apply `action` to nodes that have no one of these neighbors.
+    -- If left out or empty, it has no effect.
+    -- `group:groupname` can also be used here.
+
     interval = 10.0,
     -- Operation interval in seconds
 
@@ -9124,7 +9180,12 @@ Used by `minetest.register_lbm`.
 
 A loading block modifier (LBM) is used to define a function that is called for
 specific nodes (defined by `nodenames`) when a mapblock which contains such nodes
-gets activated (not loaded!)
+gets activated (not loaded!).
+
+Note: LBMs operate on a "snapshot" of node positions taken once before they are triggered.
+That means if an LBM callback adds a node, it won't be taken into account.
+However the engine guarantees that when the callback is called that all given position(s)
+contain a matching node.
 
 ```lua
 {
@@ -9148,7 +9209,13 @@ gets activated (not loaded!)
     action = function(pos, node, dtime_s) end,
     -- Function triggered for each qualifying node.
     -- `dtime_s` is the in-game time (in seconds) elapsed since the block
-    -- was last active
+    -- was last active.
+
+    bulk_action = function(pos_list, dtime_s) end,
+    -- Function triggered with a list of all applicable node positions at once.
+    -- This can be provided as an alternative to `action` (not both).
+    -- Available since `minetest.features.bulk_lbms` (5.10.0)
+    -- `dtime_s`: as above
 }
 ```
 
