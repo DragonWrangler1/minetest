@@ -1,21 +1,6 @@
-/*
-Minetest
-Copyright (C) 2017 nerzhul, Loic Blot <loic.blot@unix-experience.fr>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation; either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+// Luanti
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (C) 2017 nerzhul, Loic Blot <loic.blot@unix-experience.fr>
 
 #pragma once
 
@@ -37,7 +22,8 @@ enum ClientEventType : u8
 	CE_PLAYER_FORCE_MOVE,
 	CE_DEATHSCREEN_LEGACY,
 	CE_SHOW_FORMSPEC,
-	CE_SHOW_LOCAL_FORMSPEC,
+	CE_SHOW_CSM_FORMSPEC,
+	CE_SHOW_PAUSE_MENU_FORMSPEC,
 	CE_SPAWN_PARTICLE,
 	CE_ADD_PARTICLESPAWNER,
 	CE_DELETE_PARTICLESPAWNER,
@@ -50,6 +36,7 @@ enum ClientEventType : u8
 	CE_SET_STARS,
 	CE_OVERRIDE_DAY_NIGHT_RATIO,
 	CE_CLOUD_PARAMS,
+	CE_UPDATE_CAMERA,
 	CLIENTEVENT_MAX,
 };
 
@@ -80,11 +67,14 @@ struct ClientEventHudChange
 
 struct ClientEvent
 {
+	// TODO: should get rid of this ctor
+	ClientEvent() : type(CE_NONE) {}
+
+	ClientEvent(ClientEventType type) : type(type) {}
+
 	ClientEventType type;
 	union
 	{
-		// struct{
-		//} none;
 		struct
 		{
 			u16 amount;
@@ -100,8 +90,6 @@ struct ClientEvent
 			std::string *formspec;
 			std::string *formname;
 		} show_formspec;
-		// struct{
-		//} textures_updated;
 		ParticleParameters *spawn_particle;
 		struct
 		{

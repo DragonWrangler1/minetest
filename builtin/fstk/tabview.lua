@@ -1,19 +1,6 @@
---Minetest
---Copyright (C) 2014 sapier
---
---This program is free software; you can redistribute it and/or modify
---it under the terms of the GNU Lesser General Public License as published by
---the Free Software Foundation; either version 2.1 of the License, or
---(at your option) any later version.
---
---This program is distributed in the hope that it will be useful,
---but WITHOUT ANY WARRANTY; without even the implied warranty of
---MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
---GNU Lesser General Public License for more details.
---
---You should have received a copy of the GNU Lesser General Public License along
---with this program; if not, write to the Free Software Foundation, Inc.,
---51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+-- Luanti
+-- Copyright (C) 2014 sapier
+-- SPDX-License-Identifier: LGPL-2.1-or-later
 
 
 --------------------------------------------------------------------------------
@@ -66,13 +53,13 @@ local function get_formspec(self)
 
 	local content, prepend = tab.get_formspec(self, tab.name, tab.tabdata, tab.tabsize)
 
-	local ENABLE_TOUCH = core.settings:get_bool("enable_touch")
+	local TOUCH_GUI = core.settings:get_bool("touch_gui")
 
 	local orig_tsize = tab.tabsize or { width = self.width, height = self.height }
 	local tsize = { width = orig_tsize.width, height = orig_tsize.height }
 	tsize.height = tsize.height
 		+ TABHEADER_H -- tabheader included in formspec size
-		+ (ENABLE_TOUCH and GAMEBAR_OFFSET_TOUCH or GAMEBAR_OFFSET_DESKTOP)
+		+ (TOUCH_GUI and GAMEBAR_OFFSET_TOUCH or GAMEBAR_OFFSET_DESKTOP)
 		+ GAMEBAR_H -- gamebar included in formspec size
 
 	if self.parent == nil and not prepend then

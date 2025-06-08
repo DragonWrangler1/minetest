@@ -36,7 +36,7 @@ read_versions() {
 	fi
 	CURRENT_VERSION="$VERSION_MAJOR.$VERSION_MINOR.$VERSION_PATCH"
 
-	echo "Current Minetest version: $CURRENT_VERSION"
+	echo "Current Luanti version: $CURRENT_VERSION"
 }
 
 # Retrieves protocol version from header
@@ -124,10 +124,10 @@ perform_release() {
 	local release_version=$1
 	RELEASE_DATE=$(date +%Y-%m-%d)
 
-	sed -i '/\<release/s/\(version\)="[^"]*"/\1="'"$release_version"'"/' misc/net.minetest.minetest.metainfo.xml
-	sed -i 's/\(<release date\)="[^"]*"/\1="'"$RELEASE_DATE"'"/' misc/net.minetest.minetest.metainfo.xml
+	sed -i '/\<release/s/\(version\)="[^"]*"/\1="'"$release_version"'"/' misc/*.metainfo.xml
+	sed -i 's/\(<release date\)="[^"]*"/\1="'"$RELEASE_DATE"'"/' misc/*.metainfo.xml
 
-	git add -f misc/net.minetest.minetest.metainfo.xml
+	git add -f misc/*.metainfo.xml
 
 	git commit -m "Bump version to $release_version"
 
@@ -148,7 +148,7 @@ back_to_devel() {
 # Start of main logic:
 #######################
 
-# Switch to top minetest directory
+# Switch to top luanti directory
 cd ${0%/*}/..
 
 # Determine old versions

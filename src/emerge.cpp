@@ -1,22 +1,7 @@
-/*
-Minetest
-Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
-Copyright (C) 2010-2013 kwolekr, Ryan Kwolek <kwolekr@minetest.net>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation; either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+// Luanti
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
+// Copyright (C) 2010-2013 kwolekr, Ryan Kwolek <kwolekr@minetest.net>
 
 
 #include "emerge_internal.h"
@@ -121,9 +106,9 @@ EmergeManager::EmergeManager(Server *server, MetricsBackend *mb)
 		m_qlimit_generate = nthreads + 1;
 
 	// don't trust user input for something very important like this
-	m_qlimit_total = rangelim(m_qlimit_total, 1, 1000000);
-	m_qlimit_diskonly = rangelim(m_qlimit_diskonly, 1, 1000000);
+	m_qlimit_diskonly = rangelim(m_qlimit_diskonly, 2, 1000000);
 	m_qlimit_generate = rangelim(m_qlimit_generate, 1, 1000000);
+	m_qlimit_total = std::max(m_qlimit_total, std::max(m_qlimit_diskonly, m_qlimit_generate));
 
 	for (s16 i = 0; i < nthreads; i++)
 		m_threads.push_back(new EmergeThread(server, i));
@@ -390,8 +375,7 @@ bool EmergeManager::pushBlockEmergeData(
 		}
 	}
 
-	std::pair<std::map<v3s16, BlockEmergeData>::iterator, bool> findres;
-	findres = m_blocks_enqueued.insert(std::make_pair(pos, BlockEmergeData()));
+	auto findres = m_blocks_enqueued.insert(std::make_pair(pos, BlockEmergeData()));
 
 	BlockEmergeData &bedata = findres.first->second;
 	*entry_already_exists   = !findres.second;
@@ -597,7 +581,8 @@ MapBlock *EmergeThread::finishGen(v3s16 pos, BlockMakeData *bmdata,
 		Perform post-processing on blocks (invalidate lighting, queue liquid
 		transforms, etc.) to finish block make
 	*/
-	m_map->finishBlockMake(bmdata, modified_blocks);
+	m_map->finishBlockMake(bmdata, modified_blocks,
+		m_server->m_env->getGameTime());
 
 	MapBlock *block = m_map->getBlockNoCreateNoEx(pos);
 	if (!block) {
@@ -634,11 +619,6 @@ MapBlock *EmergeThread::finishGen(v3s16 pos, BlockMakeData *bmdata,
 	assert(!m_mapgen->generating);
 	m_mapgen->gennotify.clearEvents();
 	m_mapgen->vm = nullptr;
-
-	/*
-		Activate the block
-	*/
-	m_server->m_env->activateBlock(block, 0);
 
 	return block;
 }
@@ -722,6 +702,8 @@ void *EmergeThread::run()
 			{
 				ScopeProfiler sp(g_profiler, "EmergeThread: load block - async (sum)");
 				MutexAutoLock dblock(m_db.mutex);
+				// Note: this can throw an exception, but there isn't really
+				// a good, safe way to handle it.
 				m_db.loadBlock(pos, databuf);
 			}
 			// actually load it, then decide again

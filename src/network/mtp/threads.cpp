@@ -1,22 +1,7 @@
-/*
-Minetest
-Copyright (C) 2013-2017 celeron55, Perttu Ahola <celeron55@gmail.com>
-Copyright (C) 2017 celeron55, Loic Blot <loic.blot@unix-experience.fr>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation; either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+// Luanti
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (C) 2013-2017 celeron55, Perttu Ahola <celeron55@gmail.com>
+// Copyright (C) 2017 celeron55, Loic Blot <loic.blot@unix-experience.fr>
 
 #include "network/mtp/threads.h"
 #include "log.h"
@@ -491,6 +476,11 @@ void ConnectionSendThread::processNonReliableCommand(ConnectionCommandPtr &c_ptr
 				<< " UDP processing CONNCMD_DISCONNECT_PEER" << std::endl);
 			disconnect_peer(c.peer_id);
 			return;
+		case CONNCMD_PEER_ID_SET:
+			LOG(dout_con << m_connection->getDesc()
+				<< " UDP processing CONNCMD_PEER_ID_SET" << std::endl);
+			fix_peer_id(c.peer_id);
+			return;
 		case CONNCMD_SEND:
 			LOG(dout_con << m_connection->getDesc()
 				<< " UDP processing CONNCMD_SEND" << std::endl);
@@ -592,6 +582,26 @@ void ConnectionSendThread::disconnect_peer(session_t peer_id)
 	}
 
 	dynamic_cast<UDPPeer *>(&peer)->m_pending_disconnect = true;
+}
+
+void ConnectionSendThread::fix_peer_id(session_t own_peer_id)
+{
+	auto peer_ids = m_connection->getPeerIDs();
+	for (const session_t peer_id : peer_ids) {
+		PeerHelper peer = m_connection->getPeerNoEx(peer_id);
+		if (!peer)
+			continue;
+
+		auto *udp_peer = dynamic_cast<UDPPeer*>(&peer);
+		if (!udp_peer)
+			continue;
+
+		for (int ch = 0; ch < CHANNEL_COUNT; ch++) {
+			auto &channel = udp_peer->channels[ch];
+
+			channel.outgoing_reliables_sent.fixPeerId(own_peer_id);
+		}
+	}
 }
 
 void ConnectionSendThread::send(session_t peer_id, u8 channelnum,

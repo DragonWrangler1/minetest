@@ -1,21 +1,6 @@
-/*
-Minetest
-Copyright (C) 2013 celeron55, Perttu Ahola <celeron55@gmail.com>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation; either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+// Luanti
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (C) 2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #include <iomanip>
 #include <cerrno>
@@ -66,6 +51,15 @@ u16 BufferedPacket::getSeqnum() const
 		return 0; // should never happen
 
 	return readU16(&data[BASE_HEADER_SIZE + 1]);
+}
+
+void BufferedPacket::setSenderPeerId(session_t id)
+{
+	if (size() < BASE_HEADER_SIZE) {
+		assert(false); // should never happen
+		return;
+	}
+	writeU16(&data[4], id);
 }
 
 BufferedPacketPtr makePacket(const Address &address, const SharedBuffer<u8> &data,
@@ -352,6 +346,13 @@ void ReliablePacketBuffer::insert(BufferedPacketPtr &p_ptr, u16 next_expected)
 	m_oldest_non_answered_ack = m_list.front()->getSeqnum();
 }
 
+void ReliablePacketBuffer::fixPeerId(session_t new_id)
+{
+	MutexAutoLock listlock(m_list_mutex);
+	for (auto &packet : m_list)
+		packet->setSenderPeerId(new_id);
+}
+
 void ReliablePacketBuffer::incrementTimeouts(float dtime)
 {
 	MutexAutoLock listlock(m_list_mutex);
@@ -581,6 +582,13 @@ ConnectionCommandPtr ConnectionCommand::resend_one(session_t peer_id)
 	c->peer_id = peer_id;
 	c->channelnum = 0; // must be same as createPeer
 	c->reliable = true;
+	return c;
+}
+
+ConnectionCommandPtr ConnectionCommand::peer_id_set(session_t own_peer_id)
+{
+	auto c = create(CONNCMD_PEER_ID_SET);
+	c->peer_id = own_peer_id;
 	return c;
 }
 
@@ -1306,11 +1314,6 @@ Connection::~Connection()
 	m_sendThread->stop();
 	m_receiveThread->stop();
 
-	//TODO for some unkonwn reason send/receive threads do not exit as they're
-	// supposed to be but wait on peer timeout. To speed up shutdown we reduce
-	// timeout to half a second.
-	m_sendThread->setPeerTimeout(0.5);
-
 	// wait for threads to finish
 	m_sendThread->wait();
 	m_receiveThread->wait();
@@ -1628,6 +1631,14 @@ const std::string Connection::getDesc()
 void Connection::DisconnectPeer(session_t peer_id)
 {
 	putCommand(ConnectionCommand::disconnect_peer(peer_id));
+}
+
+void Connection::SetPeerID(session_t id)
+{
+	m_peer_id = id;
+	// fix peer id in existing queued reliable packets
+	if (id != PEER_ID_INEXISTENT)
+		putCommand(ConnectionCommand::peer_id_set(id));
 }
 
 void Connection::doResendOne(session_t peer_id)

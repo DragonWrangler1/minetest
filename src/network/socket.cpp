@@ -1,21 +1,6 @@
-/*
-Minetest
-Copyright (C) 2013 celeron55, Perttu Ahola <celeron55@gmail.com>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation; either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+// Luanti
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (C) 2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #include "socket.h"
 
@@ -102,24 +87,15 @@ bool UDPSocket::init(bool ipv6, bool noExceptions)
 	m_handle = socket(m_addr_family, SOCK_DGRAM, IPPROTO_UDP);
 
 	if (m_handle < 0) {
-		if (noExceptions) {
+		auto msg = std::string("Failed to create socket: ") +
+			SOCKET_ERR_STR(LAST_SOCKET_ERR());
+		verbosestream << msg << std::endl;
+		if (noExceptions)
 			return false;
-		}
-
-		throw SocketException(std::string("Failed to create socket: error ") +
-				      SOCKET_ERR_STR(LAST_SOCKET_ERR()));
+		throw SocketException(msg);
 	}
 
 	setTimeoutMs(0);
-
-	if (m_addr_family == AF_INET6) {
-		// Allow our socket to accept both IPv4 and IPv6 connections
-		// required on Windows:
-		// https://msdn.microsoft.com/en-us/library/windows/desktop/bb513665(v=vs.85).aspx
-		int value = 0;
-		setsockopt(m_handle, IPPROTO_IPV6, IPV6_V6ONLY,
-				reinterpret_cast<char *>(&value), sizeof(value));
-	}
 
 	return true;
 }
@@ -142,6 +118,20 @@ void UDPSocket::Bind(Address addr)
 				"Socket and bind address families do not match";
 		errorstream << "Bind failed: " << errmsg << std::endl;
 		throw SocketException(errmsg);
+	}
+
+	if (m_addr_family == AF_INET6) {
+		// Allow our socket to accept both IPv4 and IPv6 connections
+		// required on Windows:
+		// <https://msdn.microsoft.com/en-us/library/windows/desktop/bb513665(v=vs.85).aspx>
+		int value = 0;
+		if (setsockopt(m_handle, IPPROTO_IPV6, IPV6_V6ONLY,
+				reinterpret_cast<char *>(&value), sizeof(value)) != 0) {
+			auto errmsg = SOCKET_ERR_STR(LAST_SOCKET_ERR());
+			errorstream << "Failed to disable V6ONLY: " << errmsg
+				<< "\nTry disabling ipv6_server to fix this." << std::endl;
+			throw SocketException(errmsg);
+		}
 	}
 
 	int ret = 0;

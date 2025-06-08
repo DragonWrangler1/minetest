@@ -180,7 +180,7 @@ public:
 	linear interpolation.
 	*/
 	quaternion &slerp(quaternion q1, quaternion q2,
-			f32 time, f32 threshold = .05f);
+			f32 time, f32 threshold = .001f);
 
 	//! Set this quaternion to represent a rotation from angle and axis.
 	/** Axis must be unit length.
@@ -277,7 +277,8 @@ inline quaternion &quaternion::operator=(const matrix4 &m)
 		}
 	}
 
-	return normalize();
+	normalize();
+	return *this;
 }
 #endif
 
@@ -357,8 +358,6 @@ inline void quaternion::getMatrixFast(matrix4 &dest) const
 	dest[13] = 0.f;
 	dest[14] = 0.f;
 	dest[15] = 1.f;
-
-	dest.setDefinitelyIdentityMatrix(false);
 }
 
 /*!
@@ -396,8 +395,6 @@ inline void quaternion::getMatrix(matrix4 &dest,
 	dest[13] = center.Y;
 	dest[14] = center.Z;
 	dest[15] = 1.f;
-
-	dest.setDefinitelyIdentityMatrix(false);
 }
 
 /*!
@@ -470,8 +467,6 @@ inline void quaternion::getMatrix_transposed(matrix4 &dest) const
 	dest[7] = 0.f;
 	dest[11] = 0.f;
 	dest[15] = 1.f;
-
-	dest.setDefinitelyIdentityMatrix(false);
 }
 
 // Inverts this quaternion

@@ -1,15 +1,19 @@
 // Minetest
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
-#include "CSceneManager.h"
 #include "content/subgames.h"
 #include "filesys.h"
 
-#include "CReadFile.h"
 #include "irr_v3d.h"
 #include "irr_v2d.h"
+#include "irr_ptr.h"
 
-#include <irrlicht.h>
+#include "EDriverTypes.h"
+#include "IFileSystem.h"
+#include "IReadFile.h"
+#include "ISceneManager.h"
+#include "SkinnedMesh.h"
+#include "irrlicht.h"
 
 #include "catch.h"
 
@@ -20,10 +24,16 @@ const auto gamespec = findSubgame("devtest");
 if (!gamespec.isValid())
 	SKIP();
 
-irr::scene::CSceneManager smgr(nullptr, nullptr, nullptr);
-const auto loadMesh = [&smgr](const irr::io::path& filepath) {
-	irr::io::CReadFile file(filepath);
-	return smgr.getMesh(&file);
+irr::SIrrlichtCreationParameters p;
+p.DriverType = video::EDT_NULL;
+auto *driver = irr::createDeviceEx(p);
+REQUIRE(driver);
+
+auto *smgr = driver->getSceneManager();
+const auto loadMesh = [&] (const io::path& filepath) {
+	irr_ptr<io::IReadFile> file(driver->getFileSystem()->createAndOpenFile(filepath));
+	REQUIRE(file);
+	return smgr->getMesh(file.get());
 };
 
 const static auto model_stem = gamespec.gamemods_path +
@@ -33,21 +43,21 @@ SECTION("error cases") {
 	const static auto invalid_model_path = gamespec.gamemods_path + DIR_DELIM + "gltf" + DIR_DELIM + "invalid" + DIR_DELIM;
 
 	SECTION("empty gltf file") {
-		CHECK(loadMesh(invalid_model_path + "empty.gltf") == nullptr);
+		CHECK(!loadMesh(invalid_model_path + "empty.gltf"));
 	}
 
 	SECTION("null file pointer") {
-		CHECK(smgr.getMesh(nullptr) == nullptr);
+		CHECK(!smgr->getMesh(nullptr));
 	}
 
 	SECTION("invalid JSON") {
-		CHECK(loadMesh(invalid_model_path + "json_missing_brace.gltf") == nullptr);
+		CHECK(!loadMesh(invalid_model_path + "json_missing_brace.gltf"));
 	}
 
 	// This is an example of something that should be validated by tiniergltf.
 	SECTION("invalid bufferview bounds")
 	{
-		CHECK(loadMesh(invalid_model_path + "invalid_bufferview_bounds.gltf") == nullptr);
+		CHECK(!loadMesh(invalid_model_path + "invalid_bufferview_bounds.gltf"));
 	}
 }
 
@@ -59,7 +69,7 @@ SECTION("minimal triangle") {
 			model_stem + "triangle_without_indices.gltf");
 	INFO(path);
 	const auto mesh = loadMesh(path);
-	REQUIRE(mesh != nullptr);
+	REQUIRE(mesh);
 	REQUIRE(mesh->getMeshBufferCount() == 1);
 
 	SECTION("vertex coordinates are correct") {
@@ -81,28 +91,41 @@ SECTION("minimal triangle") {
 	}
 }
 
+auto check_cube_vertices = [](auto *meshbuf) {
+	REQUIRE(meshbuf->getVertexCount() == 24);
+	auto vertices = static_cast<const irr::video::S3DVertex *>(
+			meshbuf->getVertices());
+	CHECK(vertices[0].Pos == v3f{-1.0f, -1.0f, -1.0f});
+	CHECK(vertices[3].Pos == v3f{-1.0f, 1.0f, -1.0f});
+	CHECK(vertices[6].Pos == v3f{-1.0f, -1.0f, 1.0f});
+	CHECK(vertices[9].Pos == v3f{-1.0f, 1.0f, 1.0f});
+	CHECK(vertices[12].Pos == v3f{1.0f, -1.0f, -1.0f});
+	CHECK(vertices[15].Pos == v3f{1.0f, 1.0f, -1.0f});
+	CHECK(vertices[18].Pos == v3f{1.0f, -1.0f, 1.0f});
+	CHECK(vertices[21].Pos == v3f{1.0f, 1.0f, 1.0f});
+};
+
 SECTION("blender cube") {
-	const auto mesh = loadMesh(model_stem + "blender_cube.gltf");
-	REQUIRE(mesh != nullptr);
+	const auto path = GENERATE(
+		model_stem + "blender_cube.gltf",
+		model_stem + "blender_cube.glb");
+	const auto mesh = loadMesh(path);
+	REQUIRE(mesh);
 	REQUIRE(mesh->getMeshBufferCount() == 1);
+	auto *meshbuf = dynamic_cast<irr::scene::SSkinMeshBuffer *>(
+				mesh->getMeshBuffer(0));
+	REQUIRE(meshbuf);
 	SECTION("vertex coordinates are correct") {
-		REQUIRE(mesh->getMeshBuffer(0)->getVertexCount() == 24);
-		auto vertices = static_cast<const irr::video::S3DVertex *>(
-				mesh->getMeshBuffer(0)->getVertices());
-		CHECK(vertices[0].Pos == v3f{-10.0f, -10.0f, -10.0f});
-		CHECK(vertices[3].Pos == v3f{-10.0f, 10.0f, -10.0f});
-		CHECK(vertices[6].Pos == v3f{-10.0f, -10.0f, 10.0f});
-		CHECK(vertices[9].Pos == v3f{-10.0f, 10.0f, 10.0f});
-		CHECK(vertices[12].Pos == v3f{10.0f, -10.0f, -10.0f});
-		CHECK(vertices[15].Pos == v3f{10.0f, 10.0f, -10.0f});
-		CHECK(vertices[18].Pos == v3f{10.0f, -10.0f, 10.0f});
-		CHECK(vertices[21].Pos == v3f{10.0f, 10.0f, 10.0f});
+		core::matrix4 scale;
+		scale.setScale(v3f(10.0f));
+		REQUIRE(meshbuf->Transformation == scale);
+		check_cube_vertices(meshbuf);
 	}
 
 	SECTION("vertex indices are correct") {
-		REQUIRE(mesh->getMeshBuffer(0)->getIndexCount() == 36);
+		REQUIRE(meshbuf->getIndexCount() == 36);
 		auto indices = static_cast<const irr::u16 *>(
-				mesh->getMeshBuffer(0)->getIndices());
+				meshbuf->getIndices());
 		CHECK(indices[0] == 16);
 		CHECK(indices[1] == 5);
 		CHECK(indices[2] == 22);
@@ -110,9 +133,9 @@ SECTION("blender cube") {
 	}
 
 	SECTION("vertex normals are correct") {
-		REQUIRE(mesh->getMeshBuffer(0)->getVertexCount() == 24);
+		REQUIRE(meshbuf->getVertexCount() == 24);
 		auto vertices = static_cast<const irr::video::S3DVertex *>(
-				mesh->getMeshBuffer(0)->getVertices());
+				meshbuf->getVertices());
 		CHECK(vertices[0].Normal == v3f{-1.0f, 0.0f, 0.0f});
 		CHECK(vertices[1].Normal == v3f{0.0f, -1.0f, 0.0f});
 		CHECK(vertices[2].Normal == v3f{0.0f, 0.0f, -1.0f});
@@ -123,9 +146,9 @@ SECTION("blender cube") {
 	}
 
 	SECTION("texture coords are correct") {
-		REQUIRE(mesh->getMeshBuffer(0)->getVertexCount() == 24);
+		REQUIRE(meshbuf->getVertexCount() == 24);
 		auto vertices = static_cast<const irr::video::S3DVertex *>(
-				mesh->getMeshBuffer(0)->getVertices());
+				meshbuf->getVertices());
 		CHECK(vertices[0].TCoords == v2f{0.375f, 1.0f});
 		CHECK(vertices[1].TCoords == v2f{0.125f, 0.25f});
 		CHECK(vertices[2].TCoords == v2f{0.375f, 0.0f});
@@ -136,39 +159,37 @@ SECTION("blender cube") {
 
 SECTION("blender cube scaled") {
 	const auto mesh = loadMesh(model_stem + "blender_cube_scaled.gltf");
-	REQUIRE(mesh != nullptr);
+	REQUIRE(mesh);
 	REQUIRE(mesh->getMeshBufferCount() == 1);
+	auto *meshbuf = dynamic_cast<irr::scene::SSkinMeshBuffer *>(
+			mesh->getMeshBuffer(0));
+	REQUIRE(meshbuf);
 
 	SECTION("Scaling is correct") {
-		REQUIRE(mesh->getMeshBuffer(0)->getVertexCount() == 24);
-		auto vertices = static_cast<const irr::video::S3DVertex *>(
-				mesh->getMeshBuffer(0)->getVertices());
-
-		CHECK(vertices[0].Pos == v3f{-150.0f, -1.0f, -21.5f});
-		CHECK(vertices[3].Pos == v3f{-150.0f, 1.0f, -21.5f});
-		CHECK(vertices[6].Pos == v3f{-150.0f, -1.0f, 21.5f});
-		CHECK(vertices[9].Pos == v3f{-150.0f, 1.0f, 21.5f});
-		CHECK(vertices[12].Pos == v3f{150.0f, -1.0f, -21.5f});
-		CHECK(vertices[15].Pos == v3f{150.0f, 1.0f, -21.5f});
-		CHECK(vertices[18].Pos == v3f{150.0f, -1.0f, 21.5f});
-		CHECK(vertices[21].Pos == v3f{150.0f, 1.0f, 21.5f});
+		core::matrix4 scale;
+		scale.setScale(v3f{150.0f, 1.0f, 21.5f});
+		REQUIRE(meshbuf->Transformation == scale);
+		check_cube_vertices(meshbuf);
 	}
 }
 
 SECTION("blender cube matrix transform") {
 	const auto mesh = loadMesh(model_stem + "blender_cube_matrix_transform.gltf");
-	REQUIRE(mesh != nullptr);
+	REQUIRE(mesh);
 	REQUIRE(mesh->getMeshBufferCount() == 1);
 
 	SECTION("Transformation is correct") {
-		REQUIRE(mesh->getMeshBuffer(0)->getVertexCount() == 24);
+		auto *meshbuf = dynamic_cast<irr::scene::SSkinMeshBuffer *>(
+				mesh->getMeshBuffer(0));
+		REQUIRE(meshbuf);
+		REQUIRE(meshbuf->getVertexCount() == 24);
 		auto vertices = static_cast<const irr::video::S3DVertex *>(
-				mesh->getMeshBuffer(0)->getVertices());
+				meshbuf->getVertices());
 		const auto checkVertex = [&](const std::size_t i, v3f vec) {
 			// The transform scales by (1, 2, 3) and translates by (4, 5, 6).
-			CHECK(vertices[i].Pos == vec * v3f{1, 2, 3}
-					// The -6 is due to the coordinate system conversion.
-					+ v3f{4, 5, -6});
+			// The -6 is due to the coordinate system conversion.
+			CHECK(meshbuf->Transformation.transformVect(vertices[i].Pos)
+					== vec * v3f{1, 2, 3} + v3f{4, 5, -6});
 		};
 		checkVertex(0, v3f{-1, -1, -1});
 		checkVertex(3, v3f{-1, 1, -1});
@@ -183,7 +204,7 @@ SECTION("blender cube matrix transform") {
 
 SECTION("snow man") {
 	const auto mesh = loadMesh(model_stem + "snow_man.gltf");
-	REQUIRE(mesh != nullptr);
+	REQUIRE(mesh);
 	REQUIRE(mesh->getMeshBufferCount() == 3);
 
 	SECTION("vertex coordinates are correct for all buffers") {
@@ -338,7 +359,7 @@ SECTION("snow man") {
 SECTION("simple sparse accessor")
 {
 	const auto mesh = loadMesh(model_stem + "simple_sparse_accessor.gltf");
-	REQUIRE(mesh != nullptr);
+	REQUIRE(mesh);
 	const auto *vertices = reinterpret_cast<irr::video::S3DVertex *>(
 			mesh->getMeshBuffer(0)->getVertices());
 	const std::array<v3f, 14> expectedPositions = {
@@ -363,4 +384,95 @@ SECTION("simple sparse accessor")
 		CHECK(vertices[i].Pos == expectedPositions[i]);
 }
 
+// https://github.com/KhronosGroup/glTF-Sample-Models/tree/main/2.0/SimpleSkin
+SECTION("simple skin")
+{
+	using SkinnedMesh = irr::scene::SkinnedMesh;
+	const auto mesh = loadMesh(model_stem + "simple_skin.gltf");
+	REQUIRE(mesh != nullptr);
+	auto csm = dynamic_cast<const SkinnedMesh*>(mesh);
+	const auto joints = csm->getAllJoints();
+	REQUIRE(joints.size() == 3);
+
+	const auto findJoint = [&](const std::function<bool(const SkinnedMesh::SJoint*)> &predicate) {
+		for (const auto *joint : joints) {
+			if (predicate(joint)) {
+				return joint;
+			}
+		}
+		throw std::runtime_error("joint not found");
+	};
+
+	// Check the node hierarchy
+	const auto child = findJoint([&](auto *joint) {
+		return !!joint->ParentJointID;
+	});
+	const auto *parent = joints.at(*child->ParentJointID);
+
+	SECTION("transformations are correct")
+	{
+		{
+			const auto &transform = std::get<core::Transform>(parent->transform);
+			CHECK(transform.translation == v3f(0, 0, 0));
+			CHECK(transform.rotation == irr::core::quaternion());
+			CHECK(transform.scale == v3f(1, 1, 1));
+			CHECK(parent->GlobalInversedMatrix == irr::core::matrix4());
+		}
+		{
+			const auto &transform = std::get<core::Transform>(child->transform);
+			const v3f translation(0, 1, 0);
+			CHECK(transform.translation == translation);
+			CHECK(transform.rotation == irr::core::quaternion());
+			CHECK(transform.scale == v3f(1, 1, 1));
+			irr::core::matrix4 inverseBindMatrix;
+			inverseBindMatrix.setTranslation(-translation);
+			CHECK(child->GlobalInversedMatrix == inverseBindMatrix);
+		}
+	}
+
+	SECTION("weights are correct")
+	{
+		const auto weights = [&](const SkinnedMesh::SJoint *joint) {
+			std::unordered_map<irr::u32, irr::f32> weights;
+			for (std::size_t i = 0; i < joint->Weights.size(); ++i) {
+				const auto weight = joint->Weights[i];
+				REQUIRE(weight.buffer_id == 0);
+				weights[weight.vertex_id] = weight.strength;
+			}
+			return weights;
+		};
+		const auto parentWeights = weights(parent);
+		const auto childWeights = weights(child);
+
+		const auto checkWeights = [&](irr::u32 index, irr::f32 parentWeight, irr::f32 childWeight) {
+			const auto getWeight = [](auto weights, auto index) {
+				const auto it = weights.find(index);
+				return it == weights.end() ? 0.0f : it->second;
+			};
+			CHECK(getWeight(parentWeights, index) == parentWeight);
+			CHECK(getWeight(childWeights, index) == childWeight);
+		};
+		checkWeights(0, 1.00, 0.00);
+		checkWeights(1, 1.00, 0.00);
+		checkWeights(2, 0.75, 0.25);
+		checkWeights(3, 0.75, 0.25);
+		checkWeights(4, 0.50, 0.50);
+		checkWeights(5, 0.50, 0.50);
+		checkWeights(6, 0.25, 0.75);
+		checkWeights(7, 0.25, 0.75);
+		checkWeights(8, 0.00, 1.00);
+		checkWeights(9, 0.00, 1.00);
+	}
+
+	SECTION("there should be a third node not involved in skinning")
+	{
+		const auto other = findJoint([&](auto joint) {
+			return joint != child && joint != parent;
+		});
+		CHECK(other->Weights.empty());
+	}
+}
+
+driver->closeDevice();
+driver->drop();
 }

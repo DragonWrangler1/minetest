@@ -1,21 +1,6 @@
-/*
-Minetest
-Copyright (C) 2013 celeron55, Perttu Ahola <celeron55@gmail.com>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation; either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+// Luanti
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (C) 2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #include "lua_api/l_server.h"
 #include "lua_api/l_internal.h"
@@ -254,6 +239,10 @@ int ModApiServer::l_get_player_information(lua_State *L)
 	lua_pushstring(L, info.lang_code.c_str());
 	lua_settable(L, table);
 
+	lua_pushstring(L, "version_string");
+	lua_pushstring(L, info.vers_string.c_str());
+	lua_settable(L, table);
+
 #ifndef NDEBUG
 	lua_pushstring(L,"serialization_version");
 	lua_pushnumber(L, info.ser_vers);
@@ -271,12 +260,8 @@ int ModApiServer::l_get_player_information(lua_State *L)
 	lua_pushnumber(L, info.patch);
 	lua_settable(L, table);
 
-	lua_pushstring(L,"version_string");
-	lua_pushstring(L, info.vers_string.c_str());
-	lua_settable(L, table);
-
 	lua_pushstring(L,"state");
-	lua_pushstring(L, ClientInterface::state2Name(info.state).c_str());
+	lua_pushstring(L, ClientInterface::state2Name(info.state));
 	lua_settable(L, table);
 #endif
 

@@ -1,21 +1,6 @@
-/*
-Minetest
-Copyright (C) 2013 celeron55, Perttu Ahola <celeron55@gmail.com>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation; either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+// Luanti
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (C) 2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 /*
 	Random portability stuff
@@ -75,12 +60,13 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include "util/string.h"
 #include "util/tracy_wrapper.h"
 #include <vector>
+#include <csignal>
 #include <cstdarg>
 #include <cstdio>
 #include <signal.h>
 #include <atomic>
 
-#if !defined(SERVER) && defined(_WIN32)
+#if CHECK_CLIENT_BUILD() && defined(_WIN32)
 // On Windows export some driver-specific variables to encourage Minetest to be
 // executed on the discrete GPU in case of systems with two. Portability is fun.
 extern "C" {
@@ -96,31 +82,28 @@ namespace porting
 	Signal handler (grabs Ctrl-C on POSIX systems)
 */
 
-static bool g_killed = false;
+volatile static std::sig_atomic_t g_killed = false;
 
-bool *signal_handler_killstatus()
+volatile std::sig_atomic_t *signal_handler_killstatus()
 {
 	return &g_killed;
 }
 
 #if !defined(_WIN32) // POSIX
+#define STDERR_FILENO 2
 
 static void signal_handler(int sig)
 {
 	if (!g_killed) {
 		if (sig == SIGINT) {
-			dstream << "INFO: signal_handler(): "
-				<< "Ctrl-C pressed, shutting down." << std::endl;
+			const char *dbg_text{"INFO: signal_handler(): "
+				"Ctrl-C pressed, shutting down.\n"};
+			write(STDERR_FILENO, dbg_text, strlen(dbg_text));
 		} else if (sig == SIGTERM) {
-			dstream << "INFO: signal_handler(): "
-				<< "got SIGTERM, shutting down." << std::endl;
+			const char *dbg_text{"INFO: signal_handler(): "
+				"got SIGTERM, shutting down.\n"};
+			write(STDERR_FILENO, dbg_text, strlen(dbg_text));
 		}
-
-		// Comment out for less clutter when testing scripts
-		/*dstream << "INFO: sigint_handler(): "
-				<< "Printing debug stacks" << std::endl;
-		debug_stacks_print();*/
-
 		g_killed = true;
 	} else {
 		(void)signal(sig, SIG_DFL);
@@ -285,7 +268,7 @@ const std::string &get_sysinfo()
 }
 
 
-bool getCurrentWorkingDir(char *buf, size_t len)
+[[maybe_unused]] static bool getCurrentWorkingDir(char *buf, size_t len)
 {
 #ifdef _WIN32
 	DWORD ret = GetCurrentDirectory(len, buf);
@@ -464,7 +447,8 @@ bool setSystemPaths()
 		// Use "C:\Users\<user>\AppData\Roaming\<PROJECT_NAME_C>"
 		len = GetEnvironmentVariable("APPDATA", buf, sizeof(buf));
 		FATAL_ERROR_IF(len == 0 || len > sizeof(buf), "Failed to get APPDATA");
-		path_user = std::string(buf) + DIR_DELIM + PROJECT_NAME_C;
+		// TODO: Luanti with migration
+		path_user = std::string(buf) + DIR_DELIM + "Minetest";
 	} else {
 		path_user = std::string(buf);
 	}
@@ -529,8 +513,9 @@ bool setSystemPaths()
 	if (minetest_user_path && minetest_user_path[0] != '\0') {
 		path_user = std::string(minetest_user_path);
 	} else {
+		// TODO: luanti with migration
 		path_user = std::string(getHomeOrFail()) + DIR_DELIM "."
-			+ PROJECT_NAME;
+			+ "minetest";
 	}
 
 	return true;
@@ -557,9 +542,10 @@ bool setSystemPaths()
 	if (minetest_user_path && minetest_user_path[0] != '\0') {
 		path_user = std::string(minetest_user_path);
 	} else {
+		// TODO: luanti with migration
 		path_user = std::string(getHomeOrFail())
 			+ "/Library/Application Support/"
-			+ PROJECT_NAME;
+			+ "minetest";
 	}
 	return true;
 }
@@ -574,8 +560,9 @@ bool setSystemPaths()
 	if (minetest_user_path && minetest_user_path[0] != '\0') {
 		path_user = std::string(minetest_user_path);
 	} else {
+		// TODO: luanti with migration
 		path_user  = std::string(getHomeOrFail()) + DIR_DELIM "."
-			+ lowercase(PROJECT_NAME);
+			+ "minetest";
 	}
 	return true;
 }
@@ -681,11 +668,13 @@ void initializePaths()
 	const char *cache_dir = getenv("XDG_CACHE_HOME");
 	const char *home_dir = getenv("HOME");
 	if (cache_dir && cache_dir[0] != '\0') {
-		path_cache = std::string(cache_dir) + DIR_DELIM + PROJECT_NAME;
+		// TODO: luanti with migration
+		path_cache = std::string(cache_dir) + DIR_DELIM + "minetest";
 	} else if (home_dir) {
 		// Then try $HOME/.cache/PROJECT_NAME
+		// TODO: luanti with migration
 		path_cache = std::string(home_dir) + DIR_DELIM + ".cache"
-			+ DIR_DELIM + PROJECT_NAME;
+			+ DIR_DELIM + "minetest";
 	} else {
 		// If neither works, use $PATH_USER/cache
 		path_cache = path_user + DIR_DELIM + "cache";
@@ -696,6 +685,10 @@ void initializePaths()
 	migrateCachePath();
 
 #endif // RUN_IN_PLACE
+
+	assert(!path_share.empty());
+	assert(!path_user.empty());
+	assert(!path_cache.empty());
 
 	infostream << "Detected share path: " << path_share << std::endl;
 	infostream << "Detected user path: " << path_user << std::endl;
@@ -941,7 +934,7 @@ double perf_freq = get_perf_freq();
  * This appears to be a combination of unfortunate allocation order/fragmentation
  * and the fact that glibc does not call madvise(MADV_DONTNEED) on its own.
  * Some other allocators were also affected, jemalloc and musl libc were not.
- * read more: <https://forum.minetest.net/viewtopic.php?t=30509>
+ * read more: <https://forum.luanti.org/viewtopic.php?t=30509>
  *
  * As a workaround we track freed memory coarsely and call malloc_trim() once a
  * certain amount is reached.

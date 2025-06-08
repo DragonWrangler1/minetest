@@ -1,21 +1,6 @@
-/*
-Minetest
-Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation; either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+// Luanti
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #pragma once
 
@@ -23,7 +8,6 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include "map.h"
 #include "hud.h"
 #include "gamedef.h"
-#include "serialization.h" // For SER_FMT_VER_INVALID
 #include "content/mods.h"
 #include "inventorymanager.h"
 #include "content/subgames.h"
@@ -39,7 +23,9 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include "chatmessage.h"
 #include "sound.h"
 #include "translation.h"
+#include "script/common/c_types.h" // LuaError
 #include <atomic>
+#include <csignal>
 #include <string>
 #include <list>
 #include <map>
@@ -47,6 +33,8 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include <unordered_set>
 #include <optional>
 #include <string_view>
+#include <shared_mutex>
+#include <condition_variable>
 
 class ChatEvent;
 struct ChatEventChat;
@@ -58,6 +46,7 @@ class BanManager;
 class Inventory;
 class ModChannelMgr;
 class RemotePlayer;
+class Player;
 class PlayerSAO;
 struct PlayerHPChangeReason;
 class IRollbackManager;
@@ -79,6 +68,20 @@ struct PackedValue;
 struct ParticleParameters;
 struct ParticleSpawnerParameters;
 
+// Anticheat flags
+enum {
+	AC_DIGGING     = 0x01,
+	AC_INTERACTION = 0x02,
+	AC_MOVEMENT    = 0x04
+};
+
+constexpr const static FlagDesc flagdesc_anticheat[] = {
+	{"digging",     AC_DIGGING},
+	{"interaction", AC_INTERACTION},
+	{"movement",    AC_MOVEMENT},
+	{NULL,          0}
+};
+
 enum ClientDeletionReason {
 	CDR_LEAVE,
 	CDR_TIMEOUT,
@@ -88,7 +91,7 @@ enum ClientDeletionReason {
 struct MediaInfo
 {
 	std::string path;
-	std::string sha1_digest; // base64-encoded
+	std::string sha1_digest;
 	// true = not announced in TOCLIENT_ANNOUNCE_MEDIA (at player join)
 	bool no_announce;
 	// does what it says. used by some cases of dynamic media.
@@ -142,6 +145,25 @@ struct ClientInfo {
 	std::string vers_string, lang_code;
 };
 
+struct ModIPCStore {
+	ModIPCStore() = default;
+	~ModIPCStore();
+
+	/// RW lock for this entire structure
+	std::shared_mutex mutex;
+	/// Signalled on any changes to the map contents
+	std::condition_variable_any condvar;
+	/**
+	 * Map storing the data
+	 *
+	 * @note Do not store `nil` data in this map, instead remove the whole key.
+	 */
+	std::unordered_map<std::string, std::unique_ptr<PackedValue>> map;
+
+	/// @note Should be called without holding the lock.
+	inline void signal() { condvar.notify_all(); }
+};
+
 class Server : public con::PeerHandler, public MapEventReceiver,
 		public IGameDef
 {
@@ -170,10 +192,14 @@ public:
 
 	// This is run by ServerThread and does the actual processing
 	void AsyncRunStep(float dtime, bool initial_step = false);
-	void Receive(float timeout);
+	/// Receive and process all incoming packets. Sleep if the time goal isn't met.
+	/// @param min_time minimum time to take [s]
+	void Receive(float min_time);
 	void yieldToOtherThreads(float dtime);
 
-	PlayerSAO* StageTwoClientInit(session_t peer_id);
+	// Full player initialization after they processed all static media
+	// This is a helper function for TOSERVER_CLIENT_READY
+	PlayerSAO *StageTwoClientInit(session_t peer_id);
 
 	/*
 	 * Command Handlers
@@ -301,12 +327,14 @@ public:
 	NodeDefManager* getWritableNodeDefManager();
 	IWritableCraftDefManager* getWritableCraftDefManager();
 
+	// Not under envlock
 	virtual const std::vector<ModSpec> &getMods() const;
 	virtual const ModSpec* getModSpec(const std::string &modname) const;
 	virtual const SubgameSpec* getGameSpec() const { return &m_gamespec; }
 	static std::string getBuiltinLuaPath();
 	virtual std::string getWorldPath() const { return m_path_world; }
 	virtual std::string getModDataPath() const { return m_path_mod_data; }
+	virtual ModIPCStore *getModIPCStore() { return &m_ipcstore; }
 
 	inline bool isSingleplayer() const
 			{ return m_simple_singleplayer_mode; }
@@ -319,8 +347,7 @@ public:
 	void setStepSettings(StepSettings spdata) { m_step_settings.store(spdata); }
 	StepSettings getStepSettings() { return m_step_settings.load(); }
 
-	inline void setAsyncFatalError(const std::string &error)
-			{ m_async_fatal_error.set(error); }
+	void setAsyncFatalError(const std::string &error);
 	inline void setAsyncFatalError(const LuaError &e)
 	{
 		setAsyncFatalError(std::string("Lua: ") + e.what());
@@ -342,9 +369,10 @@ public:
 	void hudSetHotbarImage(RemotePlayer *player, const std::string &name);
 	void hudSetHotbarSelectedImage(RemotePlayer *player, const std::string &name);
 
+	/// @note this is only available for client state >= CS_HelloSent
 	Address getPeerAddress(session_t peer_id);
 
-	void setLocalPlayerAnimations(RemotePlayer *player, v2s32 animation_frames[4],
+	void setLocalPlayerAnimations(RemotePlayer *player, v2f animation_frames[4],
 			f32 frame_speed);
 	void setPlayerEyeOffset(RemotePlayer *player, v3f first, v3f third, v3f third_front);
 
@@ -384,6 +412,7 @@ public:
 	void SendMovePlayerRel(session_t peer_id, const v3f &added_pos);
 	void SendPlayerSpeed(session_t peer_id, const v3f &added_vel);
 	void SendPlayerFov(session_t peer_id);
+	void SendCamera(session_t peer_id, Player *player);
 
 	void SendMinimapModes(session_t peer_id,
 			std::vector<MinimapMode> &modes,
@@ -501,7 +530,7 @@ private:
 	virtual void SendChatMessage(session_t peer_id, const ChatMessage &message);
 	void SendTimeOfDay(session_t peer_id, u16 time, f32 time_speed);
 
-	void SendLocalPlayerAnimations(session_t peer_id, v2s32 animation_frames[4],
+	void SendLocalPlayerAnimations(session_t peer_id, v2f animation_frames[4],
 		f32 animation_speed);
 	void SendEyeOffset(session_t peer_id, v3f first, v3f third, v3f third_front);
 	void SendPlayerPrivileges(session_t peer_id);
@@ -521,6 +550,7 @@ private:
 	void SendCloudParams(session_t peer_id, const CloudParams &params);
 	void SendOverrideDayNightRatio(session_t peer_id, bool do_override, float ratio);
 	void SendSetLighting(session_t peer_id, const Lighting &lighting);
+
 	void broadcastModChannelMessage(const std::string &channel,
 			const std::string &message, session_t from_peer);
 
@@ -583,6 +613,10 @@ private:
 
 	void handleChatInterfaceEvent(ChatEvent *evt);
 
+	/// @brief Checks if user limit allows a potential client to join
+	/// @return true if the client can NOT join
+	bool checkUserLimit(const std::string &player_name, const std::string &addr_s);
+
 	// This returns the answer to the sender of wmessage, or "" if there is none
 	std::wstring handleChat(const std::string &name, std::wstring wmessage_input,
 		bool check_shout_priv = false, RemotePlayer *player = nullptr);
@@ -603,7 +637,8 @@ private:
 
 		Call with env and con locked.
 	*/
-	PlayerSAO *emergePlayer(const char *name, session_t peer_id, u16 proto_version);
+	std::unique_ptr<PlayerSAO> emergePlayer(const char *name, session_t peer_id,
+		u16 proto_version);
 
 	/*
 		Variables
@@ -665,6 +700,8 @@ private:
 	IWritableCraftDefManager *m_craftdef;
 
 	std::unordered_map<std::string, Translations> server_translations;
+
+	ModIPCStore m_ipcstore;
 
 	/*
 		Threads
@@ -763,4 +800,4 @@ private:
 
 	Shuts down when kill is set to true.
 */
-void dedicated_server_loop(Server &server, bool &kill);
+void dedicated_server_loop(Server &server, volatile std::sig_atomic_t &kill);

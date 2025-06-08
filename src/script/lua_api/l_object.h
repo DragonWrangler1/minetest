@@ -1,26 +1,12 @@
-/*
-Minetest
-Copyright (C) 2013 celeron55, Perttu Ahola <celeron55@gmail.com>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation; either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+// Luanti
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (C) 2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #pragma once
 
 #include "lua_api/l_base.h"
 #include "irrlichttypes.h"
+#include <lua.h>
 
 class ServerActiveObject;
 class LuaEntitySAO;
@@ -38,10 +24,12 @@ public:
 	~ObjectRef() = default;
 
 	// Creates an ObjectRef and leaves it on top of stack
-	// Not callable from Lua; all references are created on the C side.
+	// NOTE: do not call this, use `ScriptApiBase::objectrefGetOrCreate()`!
 	static void create(lua_State *L, ServerActiveObject *object);
 
-	static void set_null(lua_State *L);
+	// Clear the pointer in the ObjectRef (at -1).
+	// Throws an fatal error if the object pointer wasn't `expect`.
+	static void set_null(lua_State *L, void *expect);
 
 	static void Register(lua_State *L);
 
@@ -60,6 +48,9 @@ private:
 	static RemotePlayer *getplayer(ObjectRef *ref);
 
 	// Exported functions
+
+	// __tostring metamethod
+	static int mt_tostring(lua_State *L);
 
 	// garbage collector
 	static int gc_object(lua_State *L);
@@ -390,6 +381,12 @@ private:
 
 	// get_eye_offset(self)
 	static int l_get_eye_offset(lua_State *L);
+
+	// set_camera(self, {params})
+	static int l_set_camera(lua_State *L);
+
+	// get_camera(self)
+	static int l_get_camera(lua_State *L);
 
 	// set_nametag_attributes(self, attributes)
 	static int l_set_nametag_attributes(lua_State *L);

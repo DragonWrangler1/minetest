@@ -1,22 +1,7 @@
-/*
-Minetest
-Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
-Copyright (C) 2013-2020 Minetest core developers & community
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation; either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+// Luanti
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (C) 2010-2013 celeron55, Perttu Ahola <celeron55@gmail.com>
+// Copyright (C) 2013-2020 Minetest core developers & community
 
 #include "player_sao.h"
 #include "nodedef.h"
@@ -41,13 +26,12 @@ PlayerSAO::PlayerSAO(ServerEnvironment *env_, RemotePlayer *player_, session_t p
 	m_prop.selectionbox = aabb3f(-0.3f, 0.0f, -0.3f, 0.3f, 1.77f, 0.3f);
 	m_prop.pointable = PointabilityType::POINTABLE;
 	// Start of default appearance, this should be overwritten by Lua
-	m_prop.visual = "upright_sprite";
+	m_prop.visual = OBJECTVISUAL_UPRIGHT_SPRITE;
 	m_prop.visual_size = v3f(1, 2, 1);
 	m_prop.textures.clear();
 	m_prop.textures.emplace_back("player.png");
 	m_prop.textures.emplace_back("player_back.png");
 	m_prop.colors.clear();
-	m_prop.colors.emplace_back(255, 255, 255, 255);
 	m_prop.spritediv = v2s16(1,1);
 	m_prop.eye_height = 1.625f;
 	// End of default appearance
@@ -86,11 +70,10 @@ std::string PlayerSAO::getDescription()
 void PlayerSAO::addedToEnvironment(u32 dtime_s)
 {
 	ServerActiveObject::addedToEnvironment(dtime_s);
-	ServerActiveObject::setBasePosition(m_base_position);
 	m_player->setPlayerSAO(this);
 	m_player->setPeerId(m_peer_id_initial);
 	m_peer_id_initial = PEER_ID_INEXISTENT; // don't try to use it again.
-	m_last_good_position = m_base_position;
+	m_last_good_position = getBasePosition();
 }
 
 // Called before removing from environment
@@ -116,7 +99,7 @@ std::string PlayerSAO::getClientInitializationData(u16 protocol_version)
 	os << serializeString16(m_player->getName()); // name
 	writeU8(os, 1); // is_player
 	writeS16(os, getId()); // id
-	writeV3F32(os, m_base_position);
+	writeV3F32(os, getBasePosition());
 	writeV3F32(os, m_rotation);
 	writeU16(os, getHP());
 
@@ -200,7 +183,7 @@ void PlayerSAO::step(float dtime, bool send_recommended)
 		// Sequence of damage points, starting 0.1 above feet and progressing
 		// upwards in 1 node intervals, stopping below top damage point.
 		for (float dam_height = 0.1f; dam_height < dam_top; dam_height++) {
-			v3s16 p = floatToInt(m_base_position +
+			v3s16 p = floatToInt(getBasePosition() +
 				v3f(0.0f, dam_height * BS, 0.0f), BS);
 			MapNode n = m_env->getMap().getNode(p);
 			const ContentFeatures &c = m_env->getGameDef()->ndef()->get(n);
@@ -212,7 +195,7 @@ void PlayerSAO::step(float dtime, bool send_recommended)
 		}
 
 		// Top damage point
-		v3s16 ptop = floatToInt(m_base_position +
+		v3s16 ptop = floatToInt(getBasePosition() +
 			v3f(0.0f, dam_top * BS, 0.0f), BS);
 		MapNode ntop = m_env->getMap().getNode(ptop);
 		const ContentFeatures &c = m_env->getGameDef()->ndef()->get(ntop);
@@ -289,7 +272,7 @@ void PlayerSAO::step(float dtime, bool send_recommended)
 		if (isAttached())
 			pos = m_last_good_position;
 		else
-			pos = m_base_position;
+			pos = getBasePosition();
 
 		std::string str = generateUpdatePositionCommand(
 			pos,
@@ -348,7 +331,7 @@ std::string PlayerSAO::generateUpdatePhysicsOverrideCommand() const
 
 void PlayerSAO::setBasePosition(v3f position)
 {
-	if (m_player && position != m_base_position)
+	if (m_player && position != getBasePosition())
 		m_player->setDirty(true);
 
 	// This needs to be ran for attachments too
@@ -504,7 +487,7 @@ u32 PlayerSAO::punch(v3f dir,
 	} else {
 		actionstream << "(none)";
 	}
-	actionstream << " puched " <<
+	actionstream << " punched " <<
 			getDescription() << " (id=" << m_id << ", hp=" << m_hp <<
 			"), damage=" << (old_hp - (s32)getHP()) <<
 			(damage_handled ? " (handled by Lua)" : "") << std::endl;
@@ -646,10 +629,13 @@ void PlayerSAO::setMaxSpeedOverride(const v3f &vel)
 
 bool PlayerSAO::checkMovementCheat()
 {
+	static thread_local const u32 anticheat_flags =
+		g_settings->getFlagStr("anticheat_flags", flagdesc_anticheat, nullptr);
+
 	if (m_is_singleplayer ||
 			isAttached() ||
-			g_settings->getBool("disable_anticheat")) {
-		m_last_good_position = m_base_position;
+			!(anticheat_flags & AC_MOVEMENT)) {
+		m_last_good_position = getBasePosition();
 		return false;
 	}
 
@@ -660,7 +646,7 @@ bool PlayerSAO::checkMovementCheat()
 		NOTE: Actually the server should handle player physics like the
 		client does and compare player's position to what is calculated
 		on our side. This is required when eg. players fly due to an
-		explosion. Altough a node-based alternative might be possible
+		explosion. Although a node-based alternative might be possible
 		too, and much more lightweight.
 	*/
 
@@ -714,7 +700,7 @@ bool PlayerSAO::checkMovementCheat()
 	if (player_max_jump < 0.0001f)
 		player_max_jump = 0.0001f;
 
-	v3f diff = (m_base_position - m_last_good_position);
+	v3f diff = (getBasePosition() - m_last_good_position);
 	float d_vert = diff.Y;
 	diff.Y = 0;
 	float d_horiz = diff.getLength();
@@ -729,8 +715,13 @@ bool PlayerSAO::checkMovementCheat()
 		required_time = MYMAX(required_time, d_vert / s);
 	}
 
+	static thread_local float anticheat_movement_tolerance =
+		std::max(g_settings->getFloat("anticheat_movement_tolerance"), 1.0f);
+
+	required_time /= anticheat_movement_tolerance;
+
 	if (m_move_pool.grab(required_time)) {
-		m_last_good_position = m_base_position;
+		m_last_good_position = getBasePosition();
 	} else {
 		const float LAG_POOL_MIN = 5.0;
 		float lag_pool_max = m_env->getMaxLagEstimate() * 2.0;
@@ -752,8 +743,8 @@ bool PlayerSAO::getCollisionBox(aabb3f *toset) const
 	toset->MinEdge = m_prop.collisionbox.MinEdge * BS;
 	toset->MaxEdge = m_prop.collisionbox.MaxEdge * BS;
 
-	toset->MinEdge += m_base_position;
-	toset->MaxEdge += m_base_position;
+	toset->MinEdge += getBasePosition();
+	toset->MaxEdge += getBasePosition();
 	return true;
 }
 

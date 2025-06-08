@@ -1,24 +1,11 @@
---Minetest
---Copyright (C) 2018-20 rubenwardy
---
---This program is free software; you can redistribute it and/or modify
---it under the terms of the GNU Lesser General Public License as published by
---the Free Software Foundation; either version 2.1 of the License, or
---(at your option) any later version.
---
---This program is distributed in the hope that it will be useful,
---but WITHOUT ANY WARRANTY; without even the implied warranty of
---MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
---GNU Lesser General Public License for more details.
---
---You should have received a copy of the GNU Lesser General Public License along
---with this program; if not, write to the Free Software Foundation, Inc.,
---51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+-- Luanti
+-- Copyright (C) 2018-20 rubenwardy
+-- SPDX-License-Identifier: LGPL-2.1-or-later
 
 if not core.get_http_api then
 	function create_contentdb_dlg()
 		return messagebox("contentdb",
-				fgettext("ContentDB is not available when Minetest was compiled without cURL"))
+				fgettext("ContentDB is not available when Luanti was compiled without cURL"))
 	end
 	return
 end
@@ -323,9 +310,17 @@ local function get_formspec(dlgdata)
 	})
 	local img_w = cell_h * 3 / 2
 
+	-- Use as much of the available space as possible (so no padding on the
+	-- right/bottom), but don't quite allow the text to touch the border.
+	local text_w = cell_w - img_w - 0.25 - 0.025
+	local text_h = cell_h - 0.25 - 0.025
+
 	local start_idx = (cur_page - 1) * num_per_page + 1
 	for i=start_idx, math.min(#contentdb.packages, start_idx+num_per_page-1) do
 		local package = contentdb.packages[i]
+		local text = core.colorize(mt_color_green, package.title) ..
+			core.colorize("#BFBFBF", " by " .. package.author) .. "\n" ..
+			package.short_description
 
 		table.insert_all(formspec, {
 			"container[",
@@ -340,13 +335,14 @@ local function get_formspec(dlgdata)
 			"image[0,0;", img_w, ",", cell_h, ";",
 				core.formspec_escape(get_screenshot(package, package.thumbnail, 2)), "]",
 
-			"label[", img_w + 0.25 + 0.05, ",0.5;",
-				core.formspec_escape(
-					core.colorize(mt_color_green, package.title) ..
-							core.colorize("#BFBFBF", " by " .. package.author)), "]",
+			"label[", img_w + 0.25, ",0.25;", text_w, ",", text_h, ";",
+				core.formspec_escape(text), "]",
 
-			"textarea[", img_w + 0.25, ",0.75;", cell_w - img_w - 0.25, ",", cell_h - 0.75, ";;;",
-				core.formspec_escape(package.short_description), "]",
+			-- Add a tooltip in case the label overflows and the short description is cut off.
+			"tooltip[", img_w + 0.25, ",0.25;", text_w, ",", text_h, ";",
+				-- Text in tooltips doesn't wrap automatically, so we do it manually to
+				-- avoid everything being one long line.
+				core.formspec_escape(core.wrap_text(package.short_description, 80)), "]",
 
 			"style[view_", i, ";border=false]",
 			"style[view_", i, ":hovered;bgimg=", core.formspec_escape(defaulttexturedir .. "button_hover_semitrans.png"), "]",
@@ -357,30 +353,31 @@ local function get_formspec(dlgdata)
 		if package.featured then
 			table.insert_all(formspec, {
 				"tooltip[0,0;0.8,0.8;", fgettext("Featured"), "]",
-				"image[0.2,0.2;0.4,0.4;", defaulttexturedir, "server_favorite.png]",
+				"image[0.2,0.2;0.4,0.4;", core.formspec_escape(defaulttexturedir .. "server_favorite.png"), "]",
 			})
 		end
 
 		table.insert_all(formspec, {
-			"container[", cell_w - 0.625,",", 0.25, "]",
+			"container[", cell_w - 0.625,",", 0.125, "]",
 		})
 
 		if package.downloading then
 			table.insert_all(formspec, {
-				"animated_image[0,0;0.5,0.5;downloading;", defaulttexturedir, "cdb_downloading.png;3;400;;]",
+				"animated_image[0,0;0.5,0.5;downloading;", core.formspec_escape(defaulttexturedir .. "cdb_downloading.png"),
+					";3;400;;]",
 			})
 		elseif package.queued then
 			table.insert_all(formspec, {
-				"image[0,0;0.5,0.5;", defaulttexturedir, "cdb_queued.png]",
+				"image[0,0;0.5,0.5;", core.formspec_escape(defaulttexturedir .. "cdb_queued.png"), "]",
 			})
 		elseif package.path then
 			if package.installed_release < package.release then
 				table.insert_all(formspec, {
-					"image[0,0;0.5,0.5;", defaulttexturedir, "cdb_update.png]",
+					"image[0,0;0.5,0.5;", core.formspec_escape(defaulttexturedir .. "cdb_update.png"), "]",
 				})
 			else
 				table.insert_all(formspec, {
-					"image[0.1,0.1;0.3,0.3;", defaulttexturedir, "checkbox_64.png]",
+					"image[0.1,0.1;0.3,0.3;", core.formspec_escape(defaulttexturedir .. "checkbox_64.png"), "]",
 				})
 			end
 		end
@@ -487,12 +484,17 @@ end
 
 local function handle_events(event)
 	if event == "DialogShow" then
-		-- Don't show the "MINETEST" header behind the dialog.
+		-- Don't show the header image behind the dialog.
 		mm_game_theme.set_engine(true)
 
 		-- If ContentDB is already loaded, auto-install packages here.
 		do_auto_install()
 
+		return true
+	end
+
+	if event == "WindowInfoChange" then
+		ui.update()
 		return true
 	end
 

@@ -1,21 +1,6 @@
-/*
-Minetest
-Copyright (C) 2013 celeron55, Perttu Ahola <celeron55@gmail.com>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as published by
-the Free Software Foundation; either version 2.1 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Lesser General Public License for more details.
-
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-*/
+// Luanti
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (C) 2013 celeron55, Perttu Ahola <celeron55@gmail.com>
 
 #include "lua_api/l_object.h"
 #include <cmath>
@@ -84,8 +69,27 @@ RemotePlayer *ObjectRef::getplayer(ObjectRef *ref)
 
 // Exported functions
 
+int ObjectRef::mt_tostring(lua_State *L)
+{
+	auto *ref = checkObject<ObjectRef>(L, 1);
+	if (getobject(ref)) {
+		if (auto *player = getplayer(ref)) {
+			lua_pushfstring(L, "ObjectRef (player): %s", player->getName().c_str());
+		} else if (auto *entitysao = getluaobject(ref)) {
+			lua_pushfstring(L, "ObjectRef (entity): %s (id: %d)",
+					entitysao->getName().c_str(), entitysao->getId());
+		} else {
+			lua_pushfstring(L, "ObjectRef (?): %p", ref);
+		}
+	} else {
+		lua_pushfstring(L, "ObjectRef (invalid): %p", ref);
+	}
+	return 1;
+}
+
 // garbage collector
-int ObjectRef::gc_object(lua_State *L) {
+int ObjectRef::gc_object(lua_State *L)
+{
 	ObjectRef *obj = *(ObjectRef **)(lua_touserdata(L, 1));
 	delete obj;
 	return 0;
@@ -433,10 +437,10 @@ int ObjectRef::l_set_local_animation(lua_State *L)
 	if (player == nullptr)
 		return 0;
 
-	v2s32 frames[4];
+	v2f frames[4];
 	for (int i=0;i<4;i++) {
 		if (!lua_isnil(L, 2+1))
-			frames[i] = read_v2s32(L, 2+i);
+			frames[i] = read_v2f(L, 2+i);
 	}
 	float frame_speed = readParam<float>(L, 6, 30.0f);
 
@@ -453,12 +457,12 @@ int ObjectRef::l_get_local_animation(lua_State *L)
 	if (player == nullptr)
 		return 0;
 
-	v2s32 frames[4];
+	v2f frames[4];
 	float frame_speed;
 	player->getLocalAnimations(frames, &frame_speed);
 
-	for (const v2s32 &frame : frames) {
-		push_v2s32(L, frame);
+	for (const v2f &frame : frames) {
+		push_v2f(L, frame);
 	}
 
 	lua_pushnumber(L, frame_speed);
@@ -505,6 +509,39 @@ int ObjectRef::l_get_eye_offset(lua_State *L)
 	push_v3f(L, player->eye_offset_third);
 	push_v3f(L, player->eye_offset_third_front);
 	return 3;
+}
+
+int ObjectRef::l_set_camera(lua_State *L)
+{
+	NO_MAP_LOCK_REQUIRED;
+	ObjectRef *ref = checkObject<ObjectRef>(L, 1);
+	RemotePlayer *player = getplayer(ref);
+	if (player == nullptr)
+		return 0;
+
+	luaL_checktype(L, 2, LUA_TTABLE);
+
+	lua_getfield(L, -1, "mode");
+	if (lua_isstring(L, -1))
+		string_to_enum(es_CameraMode, player->allowed_camera_mode, lua_tostring(L, -1));
+	lua_pop(L, 1);
+
+	getServer(L)->SendCamera(player->getPeerId(), player);
+	return 0;
+}
+
+int ObjectRef::l_get_camera(lua_State *L)
+{
+	NO_MAP_LOCK_REQUIRED;
+	ObjectRef *ref = checkObject<ObjectRef>(L, 1);
+	RemotePlayer *player = getplayer(ref);
+	if (player == nullptr)
+		return 0;
+
+	lua_newtable(L);
+	setstringfield(L, -1, "mode", enum_to_string(es_CameraMode, player->allowed_camera_mode));
+
+	return 1;
 }
 
 // send_mapblock(self, pos)
@@ -1521,7 +1558,7 @@ int ObjectRef::l_get_meta(lua_State *L)
 	if (playersao == nullptr)
 		return 0;
 
-	PlayerMetaRef::create(L, &playersao->getMeta());
+	PlayerMetaRef::create(L, &getServer(L)->getEnv(), playersao->getPlayer()->getName());
 	return 1;
 }
 
@@ -2649,6 +2686,14 @@ int ObjectRef::l_set_lighting(lua_State *L)
 			lighting.volumetric_light_strength = rangelim(lighting.volumetric_light_strength, 0.0f, 1.0f);
 		}
 		lua_pop(L, 1); // volumetric_light
+
+		lua_getfield(L, 2, "bloom");
+		if (lua_istable(L, -1)) {
+			lighting.bloom_intensity       = getfloatfield_default(L, -1, "intensity",       lighting.bloom_intensity);
+			lighting.bloom_strength_factor = getfloatfield_default(L, -1, "strength_factor", lighting.bloom_strength_factor);
+			lighting.bloom_radius          = getfloatfield_default(L, -1, "radius",          lighting.bloom_radius);
+		}
+		lua_pop(L, 1); // bloom
 }
 
 	getServer(L)->setLighting(player, lighting);
@@ -2693,6 +2738,14 @@ int ObjectRef::l_get_lighting(lua_State *L)
 	lua_pushnumber(L, lighting.volumetric_light_strength);
 	lua_setfield(L, -2, "strength");
 	lua_setfield(L, -2, "volumetric_light");
+	lua_newtable(L); // "bloom"
+	lua_pushnumber(L, lighting.bloom_intensity);
+	lua_setfield(L, -2, "intensity");
+	lua_pushnumber(L, lighting.bloom_strength_factor);
+	lua_setfield(L, -2, "strength_factor");
+	lua_pushnumber(L, lighting.bloom_radius);
+	lua_setfield(L, -2, "radius");
+	lua_setfield(L, -2, "bloom");
 	return 1;
 }
 
@@ -2760,9 +2813,11 @@ void ObjectRef::create(lua_State *L, ServerActiveObject *object)
 	lua_setmetatable(L, -2);
 }
 
-void ObjectRef::set_null(lua_State *L)
+void ObjectRef::set_null(lua_State *L, void *expect)
 {
 	ObjectRef *obj = checkObject<ObjectRef>(L, -1);
+	assert(obj);
+	FATAL_ERROR_IF(obj->m_object != expect, "ObjectRef table was messed with");
 	obj->m_object = nullptr;
 }
 
@@ -2770,9 +2825,10 @@ void ObjectRef::Register(lua_State *L)
 {
 	static const luaL_Reg metamethods[] = {
 		{"__gc", gc_object},
+		{"__tostring", mt_tostring},
 		{0, 0}
 	};
-	registerClass(L, className, methods, metamethods);
+	registerClass<ObjectRef>(L, methods, metamethods);
 }
 
 const char ObjectRef::className[] = "ObjectRef";
@@ -2897,6 +2953,8 @@ luaL_Reg ObjectRef::methods[] = {
 	luamethod(ObjectRef, respawn),
 	luamethod(ObjectRef, set_flags),
 	luamethod(ObjectRef, get_flags),
+	luamethod(ObjectRef, set_camera),
+	luamethod(ObjectRef, get_camera),
 
 	{0,0}
 };
