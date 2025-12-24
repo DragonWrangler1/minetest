@@ -6087,8 +6087,9 @@ Call these functions only at load time!
     * Overrides fields of an item registered with register_node/tool/craftitem.
     * Note: Item must already be defined.
     * Example: `core.override_item("default:mese",
-      {light_source=core.LIGHT_MAX}, {"sounds"})`:
-      Overwrites the `light_source` field,
+      {light_source=core.LIGHT_MAX, light_source_color="#ffff00ff"}, {"sounds"})`:
+      Overwrites the `light_source` field to maximum brightness,
+      sets the emitted light color to yellow, and
       removes the sounds from the definition of the mese block.
 * `core.unregister_item(name)`
     * Unregisters the item from the engine, and deletes the entry with key
@@ -10207,6 +10208,18 @@ Used by `core.register_node`.
 
     sunlight_propagates = false,
     -- If true, sunlight will go infinitely through this node
+
+    light_source = 0,
+    -- Amount of light emitted by this node.
+    -- To set the maximum (14), use the value `core.LIGHT_MAX`.
+    -- A value outside the range 0 to `core.LIGHT_MAX` causes undefined behavior.
+
+    light_source_color = "#ffffffff",
+    -- Color of light emitted by this node, as a ColorSpec.
+    -- The alpha value is ignored. Defines the hue of the light in the world.
+    -- Only has an effect if `light_source` is greater than 0.
+    -- The color will be sampled by neighboring blocks to colorize their lighting.
+    -- Default is white (no tint).
 
     walkable = true,  -- If true, objects collide with node
 
