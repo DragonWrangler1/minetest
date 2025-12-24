@@ -278,6 +278,184 @@ u16 getSmoothLightTransparent(const v3s16 &p, const v3s16 &corner, MeshMakeData 
 	return getSmoothLightCombined(p, dirs, data);
 }
 
+LightWithColor getSmoothLightSolidWithColor(const v3s16 &p, const v3s16 &face_dir, const v3s16 &corner, MeshMakeData *data, const v3s16 &blockpos_nodes)
+{
+	return getSmoothLightTransparentWithColor(p + face_dir, corner - 2 * face_dir, data, blockpos_nodes);
+}
+
+LightWithColor getSmoothLightTransparentWithColor(const v3s16 &p, const v3s16 &corner, MeshMakeData *data, const v3s16 &blockpos_nodes)
+{
+	const std::array<v3s16,8> dirs = {{
+		v3s16(0,0,0),
+		v3s16(corner.X,0,0),
+		v3s16(0,corner.Y,0),
+		v3s16(0,0,corner.Z),
+		v3s16(corner.X,corner.Y,0),
+		v3s16(corner.X,0,corner.Z),
+		v3s16(0,corner.Y,corner.Z),
+		v3s16(corner.X,corner.Y,corner.Z)
+	}};
+	
+	const NodeDefManager *ndef = data->m_nodedef;
+
+	u16 ambient_occlusion = 0;
+	u16 light_count = 0;
+	u8 light_source_max = 0;
+	u16 light_day = 0;
+	u16 light_night = 0;
+	bool direct_sunlight = false;
+
+	auto add_node = [&] (u8 i, bool obstructed = false) -> bool {
+		if (obstructed) {
+			ambient_occlusion++;
+			return false;
+		}
+		MapNode n = data->m_vmanip.getNodeNoExNoEmerge(p + dirs[i]);
+		if (n.getContent() == CONTENT_IGNORE)
+			return true;
+		const ContentFeatures &f = ndef->get(n);
+		if (f.light_source > light_source_max)
+			light_source_max = f.light_source;
+		if (f.param_type == CPT_LIGHT && f.visuals->solidness != 2) {
+			u8 light_level_day = n.getLight(LIGHTBANK_DAY, f.getLightingFlags());
+			u8 light_level_night = n.getLight(LIGHTBANK_NIGHT, f.getLightingFlags());
+			if (light_level_day == LIGHT_SUN)
+				direct_sunlight = true;
+			light_day += decode_light(light_level_day);
+			light_night += decode_light(light_level_night);
+			light_count++;
+		} else {
+			ambient_occlusion++;
+		}
+		return f.light_propagates;
+	};
+
+	bool obstructed[4] = { true, true, true, true };
+	add_node(0);
+	bool opaque1 = !add_node(1);
+	bool opaque2 = !add_node(2);
+	bool opaque3 = !add_node(3);
+	obstructed[0] = opaque1 && opaque2;
+	obstructed[1] = opaque1 && opaque3;
+	obstructed[2] = opaque2 && opaque3;
+	for (u8 k = 0; k < 3; ++k)
+		if (add_node(k + 4, obstructed[k]))
+			obstructed[3] = false;
+	if (add_node(7, obstructed[3])) {
+		ambient_occlusion -= 3;
+		for (u8 k = 0; k < 3; ++k)
+			add_node(k + 4, !obstructed[k]);
+	}
+
+	if (light_count == 0) {
+		light_day = light_night = 0;
+	} else {
+		light_day /= light_count;
+		light_night /= light_count;
+	}
+
+	if (direct_sunlight)
+		light_day = 0xFF;
+
+	bool skip_ambient_occlusion_day = false;
+	if (decode_light(light_source_max) >= light_day) {
+		light_day = decode_light(light_source_max);
+		skip_ambient_occlusion_day = true;
+	}
+
+	bool skip_ambient_occlusion_night = false;
+	if(decode_light(light_source_max) >= light_night) {
+		light_night = decode_light(light_source_max);
+		skip_ambient_occlusion_night = true;
+	}
+
+	if (ambient_occlusion > 4) {
+		static thread_local const float ao_gamma = rangelim(
+			g_settings->getFloat("ambient_occlusion_gamma"), 0.25, 4.0);
+
+		static thread_local const float light_amount[3] = {
+			powf(0.75, 1.0 / ao_gamma),
+			powf(0.5,  1.0 / ao_gamma),
+			powf(0.25, 1.0 / ao_gamma)
+		};
+
+		ambient_occlusion -= 5;
+
+		if (!skip_ambient_occlusion_day)
+			light_day = rangelim(core::round32(
+					light_day * light_amount[ambient_occlusion]), 0, 255);
+		if (!skip_ambient_occlusion_night)
+			light_night = rangelim(core::round32(
+					light_night * light_amount[ambient_occlusion]), 0, 255);
+	}
+
+	u16 brightness = light_day | (light_night << 8);
+	v3s16 world_pos = blockpos_nodes + p;
+	video::SColor colored_light = getSampledColoredLight(world_pos, data);
+
+	return { brightness, colored_light };
+}
+
+video::SColor getSampledColoredLight(const v3s16 &world_pos, MeshMakeData *data)
+{
+	float accum_r = 0.f, accum_g = 0.f, accum_b = 0.f;
+	float max_weight = 0.f;
+
+	const s16 R = 14;
+
+	for (s16 x = -R; x <= R; x++) {
+		for (s16 y = -R; y <= R; y++) {
+			for (s16 z = -R; z <= R; z++) {
+
+				if (abs(x) + abs(y) + abs(z) > R)
+					continue;
+
+				v3s16 p = world_pos + v3s16(x, y, z);
+				MapNode n = data->m_vmanip.getNodeNoExNoEmerge(p);
+				if (n.getContent() == CONTENT_IGNORE)
+					continue;
+
+				const ContentFeatures &f = data->m_nodedef->get(n);
+
+				if (f.light_source > 0) {
+
+					video::SColorf lc(f.light_source_color);
+
+					float dist = std::sqrt(
+						(float)(x * x + y * y + z * z)
+					);
+
+					float weight = (dist == 0.f) ? 1.f : (1.f / dist);
+
+					accum_r += lc.r * weight;
+					accum_g += lc.g * weight;
+					accum_b += lc.b * weight;
+
+					if (weight > max_weight)
+						max_weight = weight;
+				}
+			}
+		}
+	}
+
+	if (max_weight > 0.f) {
+		accum_r /= max_weight;
+		accum_g /= max_weight;
+		accum_b /= max_weight;
+	}
+
+	accum_r = core::clamp(accum_r, 0.f, 1.f);
+	accum_g = core::clamp(accum_g, 0.f, 1.f);
+	accum_b = core::clamp(accum_b, 0.f, 1.f);
+
+	return video::SColor(
+		255,
+		(u8)(accum_r * 255.f),
+		(u8)(accum_g * 255.f),
+		(u8)(accum_b * 255.f)
+	);
+}
+
 void get_sunlight_color(video::SColorf *sunlight, u32 daynight_ratio)
 {
 	f32 rg = daynight_ratio / 1000.0f - 0.04f;
@@ -907,40 +1085,58 @@ void MapBlockMesh::consolidateTransparentBuffers()
 
 video::SColor encode_light(u16 light, u8 emissive_light, video::SColor light_color)
 {
-	// Get components
-	u32 day = (light & 0xff);
-	u32 night = (light >> 8);
-	// Add emissive light
-	night += emissive_light * 2.5f;
-	if (night > 255)
-		night = 255;
-	// Since we don't know if the day light is sunlight or
-	// artificial light, assume it is artificial when the night
-	// light bank is also lit.
-	if (day < night)
-		day = 0;
-	else
-		day = day - night;
-	u32 sum = day + night;
-	// Ratio of sunlight:
-	u32 r;
-	if (sum > 0)
-		r = day * 255 / sum;
-	else
-		r = 0;
-	// Average light:
-	float b = (day + night) / 2;
+	float sun = float(light & 0xff);
+	float art = float(light >> 8);
 
-	// Apply light_color tint to the brightness
-	float color_r = light_color.getRed() / 255.0f;
-	float color_g = light_color.getGreen() / 255.0f;
-	float color_b = light_color.getBlue() / 255.0f;
+	art += emissive_light * 3.0f;
+	if (art > 255.f) art = 255.f;
 
-	u32 final_r = core::clamp(core::round32(b * color_r), 0, 255);
-	u32 final_g = core::clamp(core::round32(b * color_g), 0, 255);
-	u32 final_b = core::clamp(core::round32(b * color_b), 0, 255);
+	float safe_sun = sun;
+	float safe_art = art;
 
-	return video::SColor(r, final_r, final_g, final_b);
+	float total = safe_sun + safe_art;
+	if (total < 0.0001f)
+		total = 0.0001f;
+
+	float sun_ratio = safe_sun / total;
+	float art_ratio = safe_art / total;
+
+	float brightness = std::min(sun + art, 255.f) / 255.f;
+
+	const float ambient = 0.08f;
+	float final_brightness =
+		brightness * (1.f - ambient) + ambient;
+
+	video::SColorf c(light_color);
+	float color_r = core::clamp(c.r, 0.f, 1.f);
+	float color_g = core::clamp(c.g, 0.f, 1.f);
+	float color_b = core::clamp(c.b, 0.f, 1.f);
+
+	const float sun_r = 1.f, sun_g = 1.f, sun_b = 1.f;
+
+	if (art <= 0.01f) {
+		return video::SColor(
+			255,
+			(u32)(sun_r * final_brightness * 255.f),
+			(u32)(sun_g * final_brightness * 255.f),
+			(u32)(sun_b * final_brightness * 255.f)
+		);
+	}
+
+	float r = sun_r * sun_ratio * (1.f - art_ratio) + color_r * art_ratio;
+	float g = sun_g * sun_ratio * (1.f - art_ratio) + color_g * art_ratio;
+	float b = sun_b * sun_ratio * (1.f - art_ratio) + color_b * art_ratio;
+
+	r *= final_brightness;
+	g *= final_brightness;
+	b *= final_brightness;
+
+	return video::SColor(
+		(u32)(sun_ratio * 255.f),
+		(u32)core::clamp(r * 255.f, 0.f, 255.f),
+		(u32)core::clamp(g * 255.f, 0.f, 255.f),
+		(u32)core::clamp(b * 255.f, 0.f, 255.f)
+	);
 }
 
 u8 get_solid_sides(MeshMakeData *data)

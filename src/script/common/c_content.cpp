@@ -950,6 +950,11 @@ void read_content_features(lua_State *L, ContentFeatures &f, int index)
 			<< ", it was reduced." << std::endl;
 		f.light_source = LIGHT_MAX;
 	}
+
+	lua_getfield(L, index, "light_source_color");
+	read_color(L, -1, &f.light_source_color);
+	lua_pop(L, 1);
+
 	f.damage_per_second = getintfield_default(L, index,
 			"damage_per_second", f.damage_per_second);
 
@@ -1132,6 +1137,8 @@ void push_content_features(lua_State *L, const ContentFeatures &c)
 	lua_setfield(L, -2, "sunlight_propagates");
 	lua_pushnumber(L, c.light_source);
 	lua_setfield(L, -2, "light_source");
+	push_ARGB8(L, c.light_source_color);
+	lua_setfield(L, -2, "light_source_color");
 	lua_pushboolean(L, c.is_ground_content);
 	lua_setfield(L, -2, "is_ground_content");
 	lua_pushboolean(L, c.walkable);

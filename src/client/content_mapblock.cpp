@@ -328,7 +328,7 @@ LightInfo MapblockMeshGenerator::blendLight(const v3f &vertex_pos)
 video::SColor MapblockMeshGenerator::blendLightColor(const v3f &vertex_pos)
 {
 	LightInfo light = blendLight(vertex_pos);
-	return encode_light(light.getPair(), cur_node.f->light_source, cur_node.f->light_color);
+	return encode_light(light.getPair(), cur_node.f->light_source, getSampledColoredLight());
 }
 
 video::SColor MapblockMeshGenerator::blendLightColor(const v3f &vertex_pos,
@@ -336,10 +336,16 @@ video::SColor MapblockMeshGenerator::blendLightColor(const v3f &vertex_pos,
 {
 	LightInfo light = blendLight(vertex_pos);
 	video::SColor color = encode_light(light.getPair(MYMAX(0.0f, vertex_normal.Y)),
-			cur_node.f->light_source, cur_node.f->light_color);
+			cur_node.f->light_source, getSampledColoredLight());
 	if (!cur_node.f->light_source)
 		applyFacesShading(color, vertex_normal);
 	return color;
+}
+
+video::SColor MapblockMeshGenerator::getSampledColoredLight()
+{
+	const v3s16 world_pos = blockpos_nodes + cur_node.p;
+	return ::getSampledColoredLight(world_pos, data);
 }
 
 void MapblockMeshGenerator::generateCuboidTextureCoords(const aabb3f &box, f32 *coords)
@@ -405,7 +411,7 @@ void MapblockMeshGenerator::drawAutoLightedCuboid(aabb3f box,
 			for (int j = 0; j < 4; j++) {
 				video::S3DVertex &vertex = vertices[j];
 				final_lights[j] = lights[light_indices[face][j]].getPair(MYMAX(0.0f, vertex.Normal.Y));
-				vertex.Color = encode_light(final_lights[j], cur_node.f->light_source, cur_node.f->light_color);
+				vertex.Color = encode_light(final_lights[j], cur_node.f->light_source, getSampledColoredLight());
 				if (!cur_node.f->light_source)
 					applyFacesShading(vertex.Color, vertex.Normal);
 			}
@@ -492,7 +498,7 @@ void MapblockMeshGenerator::drawSolidNode()
 			auto final_lights = lights[face];
 			for (int j = 0; j < 4; j++) {
 				video::S3DVertex &vertex = vertices[j];
-				vertex.Color = encode_light(final_lights[j], cur_node.f->light_source, cur_node.f->light_color);
+				vertex.Color = encode_light(final_lights[j], cur_node.f->light_source, getSampledColoredLight());
 				if (!cur_node.f->light_source)
 					applyFacesShading(vertex.Color, vertex.Normal);
 			}
@@ -502,7 +508,7 @@ void MapblockMeshGenerator::drawSolidNode()
 		});
 	} else {
 		drawCuboid(box, tiles, 6, nullptr, mask, [&] (int face, video::S3DVertex vertices[4]) {
-			video::SColor color = encode_light(lights[face], cur_node.f->light_source, cur_node.f->light_color);
+			video::SColor color = encode_light(lights[face], cur_node.f->light_source, getSampledColoredLight());
 			if (!cur_node.f->light_source)
 				applyFacesShading(color, vertices[0].Normal);
 			for (int j = 0; j < 4; j++) {
@@ -585,8 +591,8 @@ void MapblockMeshGenerator::prepareLiquidNodeDrawing()
 		light = LightPair(getInteriorLight(ntop, 0, nodedef));
 	}
 
-	cur_liquid.color_top = encode_light(light, cur_node.f->light_source, cur_node.f->light_color);
-	cur_node.lcolor = encode_light(light, cur_node.f->light_source, cur_node.f->light_color);
+	cur_liquid.color_top = encode_light(light, cur_node.f->light_source, getSampledColoredLight());
+	cur_node.lcolor = encode_light(light, cur_node.f->light_source, getSampledColoredLight());
 }
 
 void MapblockMeshGenerator::getLiquidNeighborhood()
@@ -1306,7 +1312,7 @@ void MapblockMeshGenerator::drawPlantlikeRootedNode()
 	} else {
 		MapNode ntop = data->m_vmanip.getNodeNoEx(blockpos_nodes + cur_node.p);
 		auto light = LightPair(getInteriorLight(ntop, 0, nodedef));
-		cur_node.lcolor = encode_light(light, cur_node.f->light_source, cur_node.f->light_color);
+		cur_node.lcolor = encode_light(light, cur_node.f->light_source, getSampledColoredLight());
 	}
 	drawPlantlike(tile, true);
 	cur_node.p.Y--;
@@ -1788,7 +1794,7 @@ void MapblockMeshGenerator::drawNode()
 		getSmoothLightFrame();
 	} else {
 		auto light = LightPair(getInteriorLight(cur_node.n, 0, nodedef));
-		cur_node.lcolor = encode_light(light, cur_node.f->light_source, cur_node.f->light_color);
+		cur_node.lcolor = encode_light(light, cur_node.f->light_source, getSampledColoredLight());
 	}
 	switch (cur_node.f->drawtype) {
 		case NDT_FLOWINGLIQUID:     drawLiquidNode(); break;

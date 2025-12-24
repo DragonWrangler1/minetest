@@ -72,6 +72,7 @@ private:
 	LightInfo blendLight(const v3f &vertex_pos);
 	video::SColor blendLightColor(const v3f &vertex_pos);
 	video::SColor blendLightColor(const v3f &vertex_pos, const v3f &vertex_normal);
+	video::SColor getSampledColoredLight();
 
 	void useTile(TileSpec *tile_ret, int index = 0, u8 set_flags = 0,
 		u8 reset_flags = 0, bool special = false);

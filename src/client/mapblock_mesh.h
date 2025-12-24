@@ -324,11 +324,21 @@ private:
  */
 video::SColor encode_light(u16 light, u8 emissive_light, video::SColor light_color = video::SColor(0xFFFFFFFF));
 
+struct LightWithColor {
+	u16 brightness;
+	video::SColor color;
+};
+
 // Compute light at node
 u16 getInteriorLight(MapNode n, s32 increment, const NodeDefManager *ndef);
 u16 getFaceLight(MapNode n, MapNode n2, const NodeDefManager *ndef);
 u16 getSmoothLightSolid(const v3s16 &p, const v3s16 &face_dir, const v3s16 &corner, MeshMakeData *data);
 u16 getSmoothLightTransparent(const v3s16 &p, const v3s16 &corner, MeshMakeData *data);
+
+LightWithColor getSmoothLightSolidWithColor(const v3s16 &p, const v3s16 &face_dir, const v3s16 &corner, MeshMakeData *data, const v3s16 &blockpos_nodes);
+LightWithColor getSmoothLightTransparentWithColor(const v3s16 &p, const v3s16 &corner, MeshMakeData *data, const v3s16 &blockpos_nodes);
+
+video::SColor getSampledColoredLight(const v3s16 &world_pos, MeshMakeData *data);
 
 /*!
  * Returns the sunlight's color from the current
