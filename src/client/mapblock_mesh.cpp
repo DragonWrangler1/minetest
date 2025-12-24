@@ -905,7 +905,7 @@ void MapBlockMesh::consolidateTransparentBuffers()
 	m_transparent_buffers_consolidated = true;
 }
 
-video::SColor encode_light(u16 light, u8 emissive_light)
+video::SColor encode_light(u16 light, u8 emissive_light, video::SColor light_color)
 {
 	// Get components
 	u32 day = (light & 0xff);
@@ -930,7 +930,17 @@ video::SColor encode_light(u16 light, u8 emissive_light)
 		r = 0;
 	// Average light:
 	float b = (day + night) / 2;
-	return video::SColor(r, b, b, b);
+
+	// Apply light_color tint to the brightness
+	float color_r = light_color.getRed() / 255.0f;
+	float color_g = light_color.getGreen() / 255.0f;
+	float color_b = light_color.getBlue() / 255.0f;
+
+	u32 final_r = core::clamp(core::round32(b * color_r), 0, 255);
+	u32 final_g = core::clamp(core::round32(b * color_g), 0, 255);
+	u32 final_b = core::clamp(core::round32(b * color_b), 0, 255);
+
+	return video::SColor(r, final_r, final_g, final_b);
 }
 
 u8 get_solid_sides(MeshMakeData *data)

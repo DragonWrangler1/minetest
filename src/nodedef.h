@@ -358,6 +358,8 @@ struct ContentFeatures
 	bool sunlight_propagates;
 	// Amount of light the node emits
 	u8 light_source;
+	// Color tint for light emitted by this node
+	video::SColor light_color;
 
 	// --- MAP GENERATION ---
 

@@ -383,6 +383,7 @@ void ContentFeatures::reset()
 	connects_to_ids.clear();
 	connect_sides = 0;
 	color = video::SColor(0xFFFFFFFF);
+	light_color = video::SColor(0xFFFFFFFF);
 	palette_name.clear();
 	node_dig_prediction = "air";
 	move_resistance = 0;
@@ -462,6 +463,7 @@ void ContentFeatures::serialize(std::ostream &os, u16 protocol_version) const
 	writeU8(os, light_propagates);
 	writeU8(os, sunlight_propagates);
 	writeU8(os, light_source);
+	writeARGB8(os, light_color);
 
 	// map generation
 	writeU8(os, is_ground_content);
@@ -575,6 +577,14 @@ void ContentFeatures::deSerialize(std::istream &is, u16 protocol_version)
 	sunlight_propagates = readU8(is);
 	light_source = readU8(is);
 	light_source = MYMIN(light_source, LIGHT_MAX);
+
+	try {
+		light_color = readARGB8(is);
+		if (is.eof())
+			throw SerializationError("");
+	} catch (SerializationError &e) {
+		light_color = video::SColor(0xFFFFFFFF);
+	}
 
 	// map generation
 	is_ground_content = readU8(is);
